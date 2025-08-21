@@ -19,9 +19,9 @@ fn main() {
                 .with_collision_hooks::<PlatformerCollisionHooks>(),
         ))
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
-        .insert_resource(Gravity(Vector::NEG_Y * 1000.0))
+        .insert_resource(Gravity(Vector::NEG_Y * 980.0))
         .add_systems(Startup, setup)
-        .add_systems(Update, (movement, pass_through_one_way_platform))
+        .add_systems(Update, (movement, pass_through_one_way_platform, camera_follow))
         .run();
 }
 
@@ -33,6 +33,9 @@ struct MovementSpeed(Scalar);
 
 #[derive(Component)]
 struct JumpImpulse(Scalar);
+
+#[derive(Component)]
+struct MainCamera;
 
 // Enable contact modification for one-way platforms with the `ActiveCollisionHooks` component.
 // Here we use required components, but you could also add it manually.
@@ -57,7 +60,7 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, MainCamera));
 
     // For borders
     let square_sprite = Sprite {
@@ -132,6 +135,33 @@ fn setup(
         JumpImpulse(450.0),
     ));
 }
+
+fn camera_follow(
+    time: Res<Time>,
+    player_q: Query<&GlobalTransform, With<Actor>>,
+    // Be explicit to avoid any type shadowing:
+    mut cam_q: Query<&mut bevy::prelude::Transform, (With<MainCamera>, Without<Actor>)>,
+) {
+    let Ok(player_gt) = player_q.single() else { return; };
+    let Ok(mut cam_tf)  = cam_q.single_mut() else { return; };
+
+    // Target the player's XY
+    let target_xy  = player_gt.translation().truncate();
+    let current_xy = cam_tf.translation.truncate();
+
+    // Smooth follow (raise 10.0 to make it snappier)
+    let t = 1.0 - (-10.0 * time.delta_secs()).exp();
+    let new_xy = current_xy.lerp(target_xy, t);
+
+    // Write just the XY; keep Z as-is
+    cam_tf.translation.x = new_xy.x;
+    cam_tf.translation.y = new_xy.y;
+
+    // If you want a hard snap instead, do:
+    // cam_tf.translation.x = target_xy.x;
+    // cam_tf.translation.y = target_xy.y;
+}
+
 
 fn movement(
     keyboard_input: Res<ButtonInput<KeyCode>>,
