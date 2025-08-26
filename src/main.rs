@@ -6,22 +6,34 @@ use bevy::{
     },
     prelude::*,
 };
+use bevy_ecs_tiled::prelude::*;
+use bevy::time::Fixed;
 
 fn main() {
     App::new()
         .add_plugins((
-            DefaultPlugins,
-            PhysicsPlugins::default()
+            DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                title: String::from("redeemer"),
+                        ..Default::default()
+                    }),
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()),
+                PhysicsPlugins::default()
                 // Specify a units-per-meter scaling factor, 1 meter = 20 pixels.
                 // The unit allows the engine to tune its parameters for the scale of the world, improving stability.
                 .with_length_unit(20.0)
                 // Add our custom collision hooks
                 .with_collision_hooks::<PlatformerCollisionHooks>(),
         ))
+        .add_plugins(TiledPlugin::default())
+        .add_plugins(TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default()) 
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
-        .insert_resource(Gravity(Vector::NEG_Y * 980.0))
+        .insert_resource(Gravity(Vector::NEG_Y * 1000.0))
         .add_systems(Startup, setup)
-        .add_systems(Update, (movement, pass_through_one_way_platform, camera_follow))
+        .add_systems(FixedUpdate, (dynamic_fall_gravity, movement, pass_through_one_way_platform, camera_follow))
         .run();
 }
 
@@ -36,6 +48,14 @@ struct JumpImpulse(Scalar);
 
 #[derive(Component)]
 struct MainCamera;
+
+#[derive(Component)]
+struct DynamicFall {
+    base_g: Scalar,   // should match your global Gravity magnitude (1000.0 here)
+    max_g:  Scalar,   // terminal gravity “ceiling”
+    grow_k: Scalar,   // how quickly we approach max_g (per second)
+    t_fall: Scalar,   // internal timer (seconds)
+}
 
 // Enable contact modification for one-way platforms with the `ActiveCollisionHooks` component.
 // Here we use required components, but you could also add it manually.
@@ -59,65 +79,23 @@ fn setup(
     mut commands: Commands,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    asset_server: Res<AssetServer>,
 ) {
     commands.spawn((Camera2d, MainCamera));
+    let map_handle: Handle<TiledMapAsset> = asset_server.load("map.tmx");
 
-    // For borders
-    let square_sprite = Sprite {
-        color: Color::srgb(0.7, 0.7, 0.8),
-        custom_size: Some(Vec2::splat(50.0)),
-        ..default()
-    };
-
-    // Ceiling
-    commands.spawn((
-        square_sprite.clone(),
-        Transform::from_xyz(0.0, 50.0 * 6.0, 0.0).with_scale(Vec3::new(20.0, 1.0, 1.0)),
-        RigidBody::Static,
-        Collider::rectangle(50.0, 50.0),
-    ));
-    // Floor
-    commands.spawn((
-        square_sprite.clone(),
-        Transform::from_xyz(0.0, -50.0 * 6.0, 0.0).with_scale(Vec3::new(20.0, 1.0, 1.0)),
-        RigidBody::Static,
-        Collider::rectangle(50.0, 50.0),
-    ));
-    // Left wall
-    commands.spawn((
-        square_sprite.clone(),
-        Transform::from_xyz(-50.0 * 9.5, 0.0, 0.0).with_scale(Vec3::new(1.0, 11.0, 1.0)),
-        RigidBody::Static,
-        Collider::rectangle(50.0, 50.0),
-    ));
-    // Right wall
-    commands.spawn((
-        square_sprite,
-        Transform::from_xyz(50.0 * 9.5, 0.0, 0.0).with_scale(Vec3::new(1.0, 11.0, 1.0)),
-        RigidBody::Static,
-        Collider::rectangle(50.0, 50.0),
-    ));
-
-    // For one-way platforms
-    let one_way_sprite = Sprite {
-        color: Color::srgba(0.7, 0.7, 0.8, 0.25),
-        custom_size: Some(Vec2::splat(50.0)),
-        ..default()
-    };
-
-    // Spawn some one way platforms
-    for y in -2..=2 {
-        commands.spawn((
-            one_way_sprite.clone(),
-            Transform::from_xyz(0.0, y as f32 * 16.0 * 6.0, 0.0)
-                .with_scale(Vec3::new(10.0, 0.5, 1.0)),
+    commands
+    .spawn((
+        TiledMap(map_handle),
+        Transform::from_xyz(0.0, -100.0, 0.0),
+    ))
+    .observe(|ev: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
+        commands.entity(ev.event().origin).insert((
             RigidBody::Static,
-            Collider::rectangle(50.0, 50.0),
-            OneWayPlatform::default(),
+            Friction::ZERO,
         ));
-    }
-
-    // Spawn an actor for the user to control
+    });
+    
     let actor_size = Vector::new(20.0, 20.0);
     let actor_mesh = meshes.add(Rectangle::from_size(actor_size.f32()));
     let actor_material = materials.add(Color::srgb(0.2, 0.7, 0.9));
@@ -128,11 +106,20 @@ fn setup(
         RigidBody::Dynamic,
         LockedAxes::ROTATION_LOCKED,
         Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
-        Collider::rectangle(actor_size.x, actor_size.y),
+        Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
+        LinearDamping(2.0),
+        Collider::circle(actor_size.x - 9.0),
         Actor,
-        PassThroughOneWayPlatform::ByNormal,
+        SpeculativeMargin(0.25),
+        PassThroughOneWayPlatform::Never,
         MovementSpeed(250.0),
-        JumpImpulse(450.0),
+        JumpImpulse(800.0),
+        DynamicFall {
+        base_g: 1000.0,
+        max_g:  2200.0,
+        grow_k: 3.0,
+        t_fall: 0.0,
+    },
     ));
 }
 
@@ -168,17 +155,30 @@ fn movement(
     mut actors: Query<(&mut LinearVelocity, &MovementSpeed, &JumpImpulse), With<Actor>>,
 ) {
     for (mut linear_velocity, movement_speed, jump_impulse) in &mut actors {
-        let left = keyboard_input.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]);
+        // Naive grounded check (matches your jump logic)
+        let grounded = linear_velocity.y.abs() < 0.1;
+
+        // Input
+        let left  = keyboard_input.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]);
         let right = keyboard_input.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]);
         let horizontal = right as i8 - left as i8;
 
-        // Move in input direction
-        linear_velocity.x = horizontal as Scalar * movement_speed.0;
+        // Sprint (Shift)
+        let sprinting = keyboard_input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let sprint_mul: Scalar = if sprinting { 1.6 } else { 1.0 };
 
-        // Assume "mostly stopped" to mean "grounded".
-        // You should use raycasting, shapecasting or sensor colliders
-        // for more robust ground detection.
-        if linear_velocity.y.abs() < 0.1
+        if grounded {
+            // On ground: allow horizontal input (with sprint)
+            linear_velocity.x = horizontal as Scalar * movement_speed.0 * sprint_mul;
+        } else {
+            // In air: block horizontal input
+            // OPTION A (keep pre-jump momentum): do nothing
+            // OPTION B (freeze X completely while airborne): uncomment the next line
+            // linear_velocity.x = 0.0;
+        }
+
+        // Jump only when grounded (your existing logic)
+        if grounded
             && !keyboard_input.pressed(KeyCode::ArrowDown)
             && keyboard_input.just_pressed(KeyCode::Space)
         {
@@ -186,6 +186,32 @@ fn movement(
         }
     }
 }
+
+
+fn dynamic_fall_gravity(
+    time: Res<Time<Fixed>>,
+    mut q: Query<(&mut LinearVelocity, &mut DynamicFall), With<Actor>>,
+) {
+    let dt = time.delta_secs();
+    for (mut vel, mut dynfall) in &mut q {
+        if vel.y < 0.0 {
+            // accumulate time while falling
+            dynfall.t_fall += dt;
+
+            // g(t) = base + (max-base)*(1 - e^{-k t})
+            let g_t = dynfall.base_g
+                + (dynfall.max_g - dynfall.base_g) * (1.0 - (-dynfall.grow_k * dynfall.t_fall).exp());
+
+            // apply only the *extra* beyond base_g (global Gravity already applies base_g)
+            let extra = g_t - dynfall.base_g;
+            vel.y -= extra * dt; // negative is downward
+        } else {
+            // not falling: reset timer so next fall starts fresh
+            dynfall.t_fall = 0.0;
+        }
+    }
+}
+
 
 fn pass_through_one_way_platform(
     mut commands: Commands,
