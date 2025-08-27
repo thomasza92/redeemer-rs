@@ -1,11 +1,38 @@
 use bevy::prelude::*;
 use crate::character::Actor;
+use bevy_light_2d::prelude::*;
 
 #[derive(Component)]
 pub struct MainCamera;
 
 pub fn spawn_follow_camera(mut commands: Commands) {
-    commands.spawn((Camera2d, MainCamera));
+    let mut projection = OrthographicProjection::default_2d();
+    projection.scale = 0.25;
+    commands.spawn((
+        MainCamera,
+        Camera2d,
+        Projection::Orthographic(projection),
+        Light2d {
+            ambient_light: AmbientLight2d {
+                brightness: 0.5,
+                ..default()
+            },
+        },
+    ));
+}
+
+pub fn spawn_streetlights(mut commands: Commands) {
+    commands.spawn((
+        PointLight2d {
+            color: Color::WHITE,
+            radius: 26.0,
+            intensity: 5.0,
+            falloff: 0.1,
+            cast_shadows: true,
+            ..default()
+        },
+        Transform::from_xyz(116., 12., 1.),
+    ));
 }
 
 pub fn camera_follow(

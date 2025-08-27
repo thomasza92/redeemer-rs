@@ -15,7 +15,7 @@ pub fn spawn_map(
 ) {
     commands
     .spawn((
-        TiledMap(asset_server.load("map.tmx")),
+        TiledMap(asset_server.load("map2.tmx")),
         Transform::from_xyz(0.0, -100.0, 0.0),
     ))
     .observe(|ev: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
