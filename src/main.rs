@@ -8,15 +8,15 @@ use avian2d::{math::*, prelude::*};
 use bevy::prelude::*;
 use bevy_ecs_tiled::prelude::*;
 use bevy_light_2d::prelude::*;
-use crate::level::{spawn_map, pass_through_one_way_platform, PlatformerCollisionHooks};
-use crate::character::spawn_main_character;
-use crate::camera::{spawn_follow_camera, camera_follow, spawn_streetlights};
 use leafwing_input_manager::prelude::*;
 use seldom_state::prelude::*;
-use crate::controls::{Action, walk, fall};
 use bevy_spritesheet_animation::prelude::*;
 use crate::animations::PlayerAnimationsPlugin;
 use crate::character::PlayerPlugin;
+use crate::level::{spawn_map, pass_through_one_way_platform, PlatformerCollisionHooks};
+use crate::character::spawn_main_character;
+use crate::controls::{Action, walk, fall};
+use crate::camera::{spawn_follow_camera, camera_follow, spawn_streetlights};
 
 fn main() {
     App::new()
@@ -42,7 +42,7 @@ fn main() {
                 .with_length_unit(2.0)
                 .with_collision_hooks::<PlatformerCollisionHooks>(),
                 Light2dPlugin,
-                PhysicsDebugPlugin::default(),
+//                PhysicsDebugPlugin::default(),
         ))
         .add_plugins(TiledPlugin::default())
         .add_plugins(TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default()) 

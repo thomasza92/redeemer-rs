@@ -10,7 +10,6 @@ impl Plugin for PlayerAnimationsPlugin {
     }
 }
 
-/// Handles for the player's spritesheet so other systems can spawn sprites.
 #[derive(Resource, Default)]
 pub struct PlayerSpritesheet {
     pub image: Handle<Image>,
@@ -25,19 +24,15 @@ const ROW_LAST: [usize; ROWS] = [
     6,7,7,2,0,0,0,7,5,7,7,0,1,1,2,3,5,7,7,5,7,7,7,6,7,7,7,7,7,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6
 ];
 
-/// Default per-frame duration for looping clips (ms).
-const DEFAULT_FRAME_MS: u32 = 90;
+const DEFAULT_FRAME_MS: u32 = 100;
 
 fn load_player_spritesheet(
     mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     assets: Res<AssetServer>,
     mut sheet: ResMut<PlayerSpritesheet>,
 ) {
-    // Load image
     sheet.image = assets.load("PlayerSheet.png");
 
-    // Build an atlas layout that matches the grid in the sheet
-    // (Spritesheet::atlas_layout is the convenient way to do this).
     let spritesheet = Spritesheet::new(COLUMNS, ROWS);
     sheet.layout = atlas_layouts.add(spritesheet.atlas_layout(FRAME_W, FRAME_H));
 }
@@ -45,16 +40,13 @@ fn load_player_spritesheet(
 fn register_player_animations(
     mut library: ResMut<AnimationLibrary>,
 ) {
-    // Create one animation per row. Name them "player:row00" .. "player:row40".
-    // You can then fetch them from any system with:
-    //   if let Some(id) = library.animation_with_name("player:row01") { ... }
     let spritesheet = Spritesheet::new(COLUMNS, ROWS);
 
     for (row, &last_col) in ROW_LAST.iter().enumerate() {
         let frames = if last_col + 1 == COLUMNS {
-            spritesheet.row(row)                 // all 8 frames
+            spritesheet.row(row)
         } else {
-            spritesheet.row_partial(row, 0..=last_col) // only existing frames in that row
+            spritesheet.row_partial(row, 0..=last_col)
         };
 
         let clip = Clip::from_frames(frames)
@@ -63,11 +55,9 @@ fn register_player_animations(
         let clip_id = library.register_clip(clip);
         let anim_id = library.register_animation(Animation::from_clip(clip_id));
 
-        // stable programmatic name
         let _ = library.name_animation(anim_id, &format!("player:row{:02}", row));
     }
 
-    // Optional friendly aliases
     if let Some(id) = library.animation_with_name("player:row00") {
         let _ = library.name_animation(id, "player:idle");
     }
