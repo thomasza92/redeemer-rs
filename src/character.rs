@@ -17,11 +17,14 @@ pub struct Actor;
 #[derive(Component, Clone, Copy, Default)]
 pub struct Attacking;
 
+#[derive(Component, Deref, DerefMut)]
+pub struct AttackTimer(pub Timer);
+
 #[derive(Component, Clone, Copy)]
 pub struct AnimClips {
     pub idle: AnimationId,
     pub walk: Option<AnimationId>,
-    pub run: Option<AnimationId>,
+    pub run:  Option<AnimationId>,
     pub jump: Option<AnimationId>,
     pub fall: Option<AnimationId>,
     pub attack: Option<AnimationId>,
@@ -38,11 +41,11 @@ pub fn spawn_main_character(
 
     let clips = AnimClips {
         idle: idle_id,
-        walk: library.animation_with_name("player:walk"),
-        run: library.animation_with_name("player:run"),
-        jump: library.animation_with_name("player:jump"),
-        fall: library.animation_with_name("player:fall"),
-        attack: library.animation_with_name("player:attack"),
+        walk:  library.animation_with_name("player:walk"),
+        run:   library.animation_with_name("player:run"),
+        jump:  library.animation_with_name("player:jump"),
+        fall:  library.animation_with_name("player:fall"),
+        attack:library.animation_with_name("player:attack"),
     };
 
     let mut sprite = Sprite::from_atlas_image(
@@ -78,9 +81,6 @@ pub fn spawn_main_character(
                 else if v < -0.5 { Grounded::Left }
                 else { Grounded::Idle }
             })
-            .trans::<Grounded, _>(just_pressed(Action::Attack), Attacking::default())
-            .trans::<Falling,  _>(just_pressed(Action::Attack), Attacking::default())
-            .trans::<Attacking, _>(just_released(Action::Attack), Grounded::Idle)
         ,
         sprite,
         SpritesheetAnimation::from_id(idle_id),
@@ -129,9 +129,7 @@ pub fn anim_refresh_walk_vs_run(
     >,
 ) {
     for (g, actions, clips, mut anim) in &mut q {
-        if !matches!(g, Grounded::Left | Grounded::Right) {
-            continue;
-        }
+        if !matches!(g, Grounded::Left | Grounded::Right) { continue; }
 
         let sprinting = actions.pressed(&Action::Sprint);
         let desired = if sprinting {
@@ -159,15 +157,68 @@ pub fn anim_on_enter_falling(
     }
 }
 
-pub fn anim_on_enter_attacking(
-    mut q: Query<(&AnimClips, &mut SpritesheetAnimation), Added<Attacking>>,
+const ATTACK_SECONDS: f32 = 0.50;
+
+pub fn start_attack(
+    mut commands: Commands,
+    q: Query<(Entity, &ActionState<Action>, &AnimClips, &SpritesheetAnimation), Without<Attacking>>,
 ) {
-    for (clips, mut anim) in &mut q {
+    for (e, actions, clips, anim) in &q {
+        if !actions.just_pressed(&Action::Attack) { continue; }
         let id = clips.attack.unwrap_or(clips.idle);
         if anim.animation_id != id {
-            anim.switch(id);
+            commands.entity(e).insert(QueuedAnimSwitch(id));
+        }
+        commands.entity(e).insert((
+            Attacking,
+            AttackTimer(Timer::from_seconds(ATTACK_SECONDS, TimerMode::Once)),
+        ));
+    }
+}
+
+#[derive(Component)]
+struct QueuedAnimSwitch(AnimationId);
+
+fn apply_queued_switch(mut commands: Commands, mut q: Query<(Entity, &QueuedAnimSwitch, &mut SpritesheetAnimation)>) {
+    for (e, queued, mut anim) in &mut q {
+        if anim.animation_id != queued.0 {
+            anim.switch(queued.0);
         }
         anim.playing = true;
+        commands.entity(e).remove::<QueuedAnimSwitch>();
+    }
+}
+
+pub fn update_attack_timer(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut AttackTimer)>,
+) {
+    for (e, mut timer) in &mut q {
+        timer.tick(time.delta());
+        if timer.finished() {
+            commands.entity(e).remove::<(Attacking, AttackTimer)>();
+        }
+    }
+}
+
+pub fn interrupt_attack_on_jump_or_fall(
+    mut commands: Commands,
+    q: Query<Entity, (With<Attacking>, Added<Falling>)>,
+) {
+    for e in &q {
+        commands.entity(e).remove::<(Attacking, AttackTimer)>();
+    }
+}
+
+pub fn interrupt_attack_on_move(
+    mut commands: Commands,
+    q: Query<(Entity, &Grounded), (With<Attacking>, Changed<Grounded>)>,
+) {
+    for (e, g) in &q {
+        if matches!(g, Grounded::Left | Grounded::Right) {
+            commands.entity(e).remove::<(Attacking, AttackTimer)>();
+        }
     }
 }
 
@@ -196,8 +247,12 @@ impl Plugin for PlayerPlugin {
                 anim_on_grounded_change,
                 anim_refresh_walk_vs_run,
                 anim_on_enter_falling,
-                anim_on_enter_attacking,
                 init_fall_inertia,
+                start_attack,
+                apply_queued_switch,
+                update_attack_timer,
+                interrupt_attack_on_jump_or_fall,
+                interrupt_attack_on_move,
             ),
         );
     }
