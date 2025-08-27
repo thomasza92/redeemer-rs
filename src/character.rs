@@ -146,14 +146,20 @@ pub fn anim_refresh_walk_vs_run(
 }
 
 pub fn anim_on_enter_falling(
-    mut q: Query<(&AnimClips, &mut SpritesheetAnimation), (Added<Falling>, Without<Attacking>)>,
+    mut q: Query<(&AnimClips, &Falling, &mut SpritesheetAnimation, &mut Transform), (Added<Falling>, Without<Attacking>)>,
 ) {
-    for (clips, mut anim) in &mut q {
+    for (clips, falling, mut anim, mut tf) in &mut q {
         let id = clips.jump.or(clips.fall).unwrap_or(clips.idle);
         if anim.animation_id != id {
             anim.switch(id);
         }
         anim.playing = true;
+
+        if falling.vel_x > 0.0 {
+            tf.scale.x = tf.scale.x.abs();
+        } else if falling.vel_x < 0.0 {
+            tf.scale.x = -tf.scale.x.abs();
+        }
     }
 }
 
@@ -223,17 +229,29 @@ pub fn interrupt_attack_on_move(
 }
 
 pub fn init_fall_inertia(
-    mut q: Query<(&mut Falling, Option<&Grounded>, &ActionState<Action>), Added<Falling>>,
+    mut q: Query<(&mut Falling, &ActionState<Action>, &mut Transform), Added<Falling>>,
 ) {
-    for (mut falling, grounded, actions) in &mut q {
+    const MOVE_THRESHOLD: f32 = 0.5;
+
+    for (mut falling, actions, mut tf) in &mut q {
         let axis = actions.value(&Action::Move);
-        let dir_from_grounded = grounded.map(|g| *g as i32 as f32).unwrap_or(0.0);
-        let dir = if axis.abs() > 0.05 { axis } else { dir_from_grounded.signum() };
+        let dir = if axis > MOVE_THRESHOLD {
+            1.0
+        } else if axis < -MOVE_THRESHOLD {
+            -1.0
+        } else {
+            0.0
+        };
 
         let sprinting = actions.pressed(&Action::Sprint);
         let speed = PLAYER_SPEED * if sprinting { SPRINT_MULTIPLIER } else { 1.0 };
-
         falling.vel_x = speed * dir;
+        
+        if dir > 0.0 {
+            tf.scale.x = tf.scale.x.abs();
+        } else if dir < 0.0 {
+            tf.scale.x = -tf.scale.x.abs();
+        }
     }
 }
 

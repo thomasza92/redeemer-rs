@@ -14,7 +14,7 @@ pub fn spawn_follow_camera(mut commands: Commands) {
         Projection::Orthographic(projection),
         Light2d {
             ambient_light: AmbientLight2d {
-                brightness: 0.5,
+                brightness: 0.1,
                 ..default()
             },
         },
@@ -25,13 +25,24 @@ pub fn spawn_streetlights(mut commands: Commands) {
     commands.spawn((
         PointLight2d {
             color: Color::WHITE,
-            radius: 26.0,
-            intensity: 5.0,
-            falloff: 0.1,
+            radius: 100.0,
+            intensity: 2.0,
+            falloff: 0.5,
             cast_shadows: true,
             ..default()
         },
         Transform::from_xyz(116., 12., 1.),
+    ));
+    commands.spawn((
+        PointLight2d {
+            color: Color::WHITE,
+            radius: 100.0,
+            intensity: 2.0,
+            falloff: 0.5,
+            cast_shadows: true,
+            ..default()
+        },
+        Transform::from_xyz(693., 12., 1.),
     ));
 }
 
