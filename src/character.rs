@@ -96,52 +96,59 @@ pub fn spawn_main_character(
 }
 
 pub fn anim_on_grounded_change(
-    mut q: Query<(&Grounded, &AnimClips, &mut SpritesheetAnimation, &mut Transform), Changed<Grounded>>,
+    mut q: Query<
+        (&Grounded, &AnimClips, &mut SpritesheetAnimation, &mut Transform),
+        (Changed<Grounded>, Without<Attacking>),
+    >,
 ) {
     for (g, clips, mut anim, mut tf) in &mut q {
-        let target = match g {
-            Grounded::Idle => Some(clips.idle),
-            Grounded::Left | Grounded::Right => clips.walk.or(Some(clips.idle)),
-        };
-
-        if let Some(id) = target {
-            if anim.animation_id != id {
-                anim.switch(id);
-            }
-            anim.playing = true;
-        }
         match g {
-            Grounded::Right => tf.scale.x = tf.scale.x.abs(),
-            Grounded::Left  => tf.scale.x = -tf.scale.x.abs(),
-            Grounded::Idle  => {}
+            Grounded::Idle => {
+                let id = clips.idle;
+                if anim.animation_id != id {
+                    anim.switch(id);
+                }
+                anim.playing = true;
+            }
+            Grounded::Left => {
+                tf.scale.x = -tf.scale.x.abs();
+                anim.playing = true;
+            }
+            Grounded::Right => {
+                tf.scale.x = tf.scale.x.abs();
+                anim.playing = true;
+            }
         }
     }
 }
 
 pub fn anim_refresh_walk_vs_run(
-    mut q: Query<(&Grounded, &ActionState<Action>, &AnimClips, &mut SpritesheetAnimation)>,
+    mut q: Query<
+        (&Grounded, &ActionState<Action>, &AnimClips, &mut SpritesheetAnimation),
+        Without<Attacking>,
+    >,
 ) {
     for (g, actions, clips, mut anim) in &mut q {
-        if !matches!(g, Grounded::Left | Grounded::Right) { continue; }
+        if !matches!(g, Grounded::Left | Grounded::Right) {
+            continue;
+        }
 
         let sprinting = actions.pressed(&Action::Sprint);
         let desired = if sprinting {
-            clips.run.or(clips.walk)
+            clips.run.or(clips.walk).unwrap_or(clips.idle)
         } else {
-            clips.walk
-        }.or(Some(clips.idle));
+            clips.walk.unwrap_or(clips.idle)
+        };
 
-        if let Some(id) = desired {
-            if anim.animation_id != id {
-                anim.switch(id);
-            }
-            anim.playing = true;
+        if anim.animation_id != desired {
+            anim.switch(desired);
         }
+        anim.playing = true;
     }
 }
 
 pub fn anim_on_enter_falling(
-    mut q: Query<(&AnimClips, &mut SpritesheetAnimation), Added<Falling>>,
+    mut q: Query<(&AnimClips, &mut SpritesheetAnimation), (Added<Falling>, Without<Attacking>)>,
 ) {
     for (clips, mut anim) in &mut q {
         let id = clips.jump.or(clips.fall).unwrap_or(clips.idle);
