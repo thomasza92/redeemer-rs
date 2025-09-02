@@ -5,6 +5,7 @@ use leafwing_input_manager::prelude::*;
 use avian2d::prelude::*;
 use seldom_state::prelude::*;
 use seldom_state::trigger::just_pressed;
+use bevy::log::info;
 
 use crate::level::PassThroughOneWayPlatform;
 use crate::animations::PlayerSpritesheet;
@@ -35,6 +36,10 @@ pub struct Running;
 #[derive(Component, Reflect, Default, Debug, Clone)]
 #[component(storage = "SparseSet")]
 pub struct Jumping;
+
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct SprintJumping;
 
 #[derive(Component, Reflect, Default, Debug, Clone)]
 #[component(storage = "SparseSet")]
@@ -139,14 +144,61 @@ pub fn spawn_main_character(
             a.value(&Action::Move).abs() >= 0.5 && a.pressed(&Action::Sprint)
         } else { false }
     }
-    fn stopped_moving(In(e): In<Entity>, act_q: Query<&ActionState<Action>>) -> bool {
-        act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() < 0.5).unwrap_or(false)
+    fn stopped_moving(
+        In(e): In<Entity>,
+        act_q: Query<&ActionState<Action>>,
+        vel_q: Query<&LinearVelocity>,
+    ) -> bool {
+        let input_small = act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() < 0.20).unwrap_or(true);
+        let speed_small = vel_q.get(e).ok().map(|v| v.x.abs() < 18.0).unwrap_or(true);
+        input_small && speed_small
     }
     fn step_off(In(e): In<Entity>, contacts_q: Query<&CollidingEntities>) -> bool {
         contacts_q.get(e).ok().map(|c| c.is_empty()).unwrap_or(true)
     }
-    fn landed(In(e): In<Entity>, contacts_q: Query<&CollidingEntities>) -> bool {
-        contacts_q.get(e).ok().map(|c| !c.is_empty()).unwrap_or(false)
+    fn landed(
+        In(e): In<Entity>,
+        contacts_q: Query<&CollidingEntities>,
+        vel_q: Query<&LinearVelocity>,
+        falling_q: Query<&Falling>,
+    ) -> bool {
+        let touching = contacts_q.get(e).ok().map(|c| !c.is_empty()).unwrap_or(false);
+        if !touching { return false; }
+        let vy = vel_q.get(e).ok().map(|v| v.y).unwrap_or(0.0);
+        let is_falling = falling_q.get(e).is_ok();
+        is_falling || vy <= 0.0
+    }
+    fn landed_walking(
+        In(e): In<Entity>,
+        act_q: Query<&ActionState<Action>>,
+        contacts_q: Query<&CollidingEntities>,
+        vel_q: Query<&LinearVelocity>,
+        falling_q: Query<&Falling>,
+    ) -> bool {
+        let touching = contacts_q.get(e).ok().map(|c| !c.is_empty()).unwrap_or(false);
+        if !touching { return false; }
+
+        let vy = vel_q.get(e).ok().map(|v| v.y).unwrap_or(0.0);
+        let is_falling = falling_q.get(e).is_ok();
+        let landed_now = is_falling || vy <= 0.0;
+
+        landed_now && act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() >= 0.5 && !a.pressed(&Action::Sprint)).unwrap_or(false)
+    }
+    fn landed_sprinting(
+        In(e): In<Entity>,
+        act_q: Query<&ActionState<Action>>,
+        contacts_q: Query<&CollidingEntities>,
+        vel_q: Query<&LinearVelocity>,
+        falling_q: Query<&Falling>,
+    ) -> bool {
+        let touching = contacts_q.get(e).ok().map(|c| !c.is_empty()).unwrap_or(false);
+        if !touching { return false; }
+
+        let vy = vel_q.get(e).ok().map(|v| v.y).unwrap_or(0.0);
+        let is_falling = falling_q.get(e).is_ok();
+        let landed_now = is_falling || vy <= 0.0;
+
+        landed_now && act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() >= 0.5 && a.pressed(&Action::Sprint)).unwrap_or(false)
     }
     fn apex(In(e): In<Entity>, vel_q: Query<&LinearVelocity>, contacts_q: Query<&CollidingEntities>) -> bool {
         let in_air = contacts_q.get(e).ok().map(|c| c.is_empty()).unwrap_or(true);
@@ -167,15 +219,22 @@ pub fn spawn_main_character(
         .trans::<Walking, _>(stopped_moving, Idle)
         .trans::<Walking, _>(step_off, Falling)
         // RUNNING
-        .trans::<Running, _>(just_pressed(Action::Jump), Jumping)
+        .trans::<Running, _>(just_pressed(Action::Jump), SprintJumping)
         .trans::<Running, _>(walking, Walking)
         .trans::<Running, _>(stopped_moving, Idle)
         .trans::<Running, _>(step_off, Falling)
         // AIR
         .trans::<Jumping, _>(apex, Falling)
-        .trans::<Jumping, _>(landed, Idle)
-        .trans::<Falling, _>(landed, Idle);
-
+        .trans::<Jumping, _>(landed_sprinting, Running)
+        .trans::<Jumping, _>(landed_walking,  Walking)
+        .trans::<Jumping, _>(landed,           Idle)
+        .trans::<SprintJumping, _>(apex, Falling)
+        .trans::<SprintJumping, _>(landed_sprinting, Running)
+        .trans::<SprintJumping, _>(landed_walking,  Walking)
+        .trans::<SprintJumping, _>(landed,           Idle)
+        .trans::<Falling, _>(landed_sprinting, Running)
+        .trans::<Falling, _>(landed_walking,  Walking)
+        .trans::<Falling, _>(landed,           Idle);
     commands
         .spawn(PlayerBundle {
             actor: Actor,
@@ -207,17 +266,39 @@ pub fn spawn_main_character(
 }
 
 fn drive_motion_set_velocity(
-    mut q: Query<(&ActionState<Action>, &mut LinearVelocity), With<Actor>>,
+    time: Res<Time>,
+    mut q: Query<(
+        &ActionState<Action>,
+        &mut LinearVelocity,
+        Option<&Jumping>,
+        Option<&Falling>,
+        Option<&SprintJumping>,
+    ), With<Actor>>,
 ) {
-    for (actions, mut vel) in &mut q {
+    for (actions, mut vel, jumping, falling, sprint_jumping) in &mut q {
         let axis = actions.value(&Action::Move);
-        let sprint_mult = if actions.pressed(&Action::Sprint) { SPRINT_MULTIPLIER } else { 1.0 };
-        vel.x = axis * PLAYER_SPEED * sprint_mult;
+        let in_air = jumping.is_some() || falling.is_some() || sprint_jumping.is_some();
+        let base_speed_mag = axis.abs() * PLAYER_SPEED;
+        let already_above_base = vel.x.abs() > base_speed_mag;
+        let sprint_mult = if
+            sprint_jumping.is_some()
+            || (falling.is_some() && already_above_base)
+            || (!in_air && actions.pressed(&Action::Sprint))
+        {
+            SPRINT_MULTIPLIER
+        } else {
+            1.0
+        };
+        let target = axis * PLAYER_SPEED * sprint_mult;
+        let accel = if in_air { 1800.0 } else { 3600.0 };
+        let max_step = accel * time.delta_secs();
+        let delta = (target - vel.x).clamp(-max_step, max_step);
+        vel.x += delta;
     }
 }
 
 fn on_added_jumping_set_impulse(
-    mut q: Query<&mut LinearVelocity, Added<Jumping>>,
+    mut q: Query<&mut LinearVelocity, Or<(Added<Jumping>, Added<SprintJumping>)>>,
 ) {
     for mut vel in &mut q {
         vel.y = JUMP_VELOCITY;
@@ -232,19 +313,19 @@ fn face_by_input(mut q: Query<(&ActionState<Action>, &mut Sprite), With<Actor>>)
     }
 }
 
-// ───────── Animation (kept simple) ─────────
+// ───────── Animation ─────────
 fn drive_animation(
     mut q: Query<(
         &AnimClips,
         &mut SpritesheetAnimation,
         &mut CurrentAnim,
         Option<&Idle>, Option<&Walking>, Option<&Running>,
-        Option<&Jumping>, Option<&Falling>,
+        Option<&Jumping>, Option<&Falling>, Option<&SprintJumping>,
         &LinearVelocity,
     ), With<Actor>>,
 ) {
-    for (clips, mut anim, mut current, idle, walking, running, jumping, falling, vel) in &mut q {
-        let want = if jumping.is_some() {
+    for (clips, mut anim, mut current, idle, walking, running, jumping, falling, sprint_jumping, vel) in &mut q {
+        let want = if sprint_jumping.is_some() || jumping.is_some() {
             clips.jump.or(clips.fall).or(Some(clips.idle))
         } else if falling.is_some() {
             if vel.y > 0.0 { clips.jump.or(clips.fall) } else { clips.fall }.or(Some(clips.idle))
@@ -268,6 +349,35 @@ fn drive_animation(
     }
 }
 
+fn debug_log_player_state(
+    q: Query<
+        (
+            Option<&Idle>,
+            Option<&Walking>,
+            Option<&Running>,
+            Option<&Jumping>,
+            Option<&SprintJumping>,
+            Option<&Falling>,
+        ),
+        With<Actor>
+    >,
+    mut last: Local<Option<&'static str>>,
+) {
+    for (_idle, walking, running, jumping, sprint_jump, falling) in &q {
+        let now: &'static str = if sprint_jump.is_some() { "SprintJumping" }
+        else if jumping.is_some() { "Jumping" }
+        else if falling.is_some() { "Falling" }
+        else if running.is_some() { "Running" }
+        else if walking.is_some() { "Walking" }
+        else { "Idle" };
+
+        if last.as_deref() != Some(now) {
+            info!("Player state → {}", now);
+            *last = Some(now);
+        }
+    }
+}
+
 // ───────── Plugin ─────────
 pub struct PlayerPlugin;
 
@@ -277,6 +387,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(Update, (
                 drive_motion_set_velocity,
                 face_by_input,
+                debug_log_player_state,
             ))
             .add_systems(PostUpdate, (
                 on_added_jumping_set_impulse,
