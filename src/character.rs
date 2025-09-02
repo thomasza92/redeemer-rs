@@ -45,6 +45,26 @@ pub struct SprintJumping;
 #[component(storage = "SparseSet")]
 pub struct Falling;
 
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct IdleAttack;
+
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct WalkingAttack;
+
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct RunningAttack;
+
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct JumpingAttack;
+
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct FallingAttack;
+
 // ───────── Animation ────────
 #[derive(Component, Clone, Copy)]
 struct CurrentAnim(AnimationId);
@@ -56,6 +76,7 @@ pub struct AnimClips {
     pub run:  Option<AnimationId>,
     pub jump: Option<AnimationId>,
     pub fall: Option<AnimationId>,
+    pub attack: AnimationId,
 }
 
 // ───────── Tuning ────────
@@ -103,12 +124,17 @@ pub fn spawn_main_character(
         .animation_with_name("player:idle")
         .expect("missing animation: player:idle");
 
+    let attack_id = library
+    .animation_with_name("player_combat:idle_attack")
+    .expect("missing animation: player_combat:idle_attack");
+
     let clips = AnimClips {
         idle: idle_id,
         walk:  library.animation_with_name("player:walk"),
         run:   library.animation_with_name("player:run"),
         jump:  library.animation_with_name("player:jump"),
         fall:  library.animation_with_name("player:fall"),
+        attack: attack_id,
     };
 
     // Sprite
@@ -149,8 +175,13 @@ pub fn spawn_main_character(
         act_q: Query<&ActionState<Action>>,
         vel_q: Query<&LinearVelocity>,
     ) -> bool {
-        let input_small = act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() < 0.20).unwrap_or(true);
-        let speed_small = vel_q.get(e).ok().map(|v| v.x.abs() < 18.0).unwrap_or(true);
+        let axis = act_q.get(e).ok().map(|a| a.value(&Action::Move)).unwrap_or(0.0);
+        let vx   = vel_q.get(e).ok().map(|v| v.x).unwrap_or(0.0);
+        if axis.abs() >= 0.10 && vx.abs() > 8.0 && axis.signum() != vx.signum() {
+            return false;
+        }
+        let input_small = axis.abs() < 0.10;
+        let speed_small = vx.abs()   < 8.0;
         input_small && speed_small
     }
     fn step_off(In(e): In<Entity>, contacts_q: Query<&CollidingEntities>) -> bool {
@@ -205,36 +236,71 @@ pub fn spawn_main_character(
         let vy = vel_q.get(e).ok().map(|v| v.y).unwrap_or(0.0);
         in_air && vy <= 0.0
     }
+    fn attack_released(In(e): In<Entity>, act_q: Query<&ActionState<Action>>) -> bool {
+    act_q.get(e).ok().map(|a| !a.pressed(&Action::Attack)).unwrap_or(true)
+    }
 
     // ───── Machine
     let machine = StateMachine::default()
         // IDLE
         .trans::<Idle, _>(just_pressed(Action::Jump), Jumping)
+        .trans::<Idle, _>(just_pressed(Action::Attack), IdleAttack)
         .trans::<Idle, _>(sprinting, Running)
         .trans::<Idle, _>(walking, Walking)
         .trans::<Idle, _>(step_off, Falling)
         // WALKING
         .trans::<Walking, _>(just_pressed(Action::Jump), Jumping)
+        .trans::<Walking, _>(just_pressed(Action::Attack), WalkingAttack)
         .trans::<Walking, _>(sprinting, Running)
         .trans::<Walking, _>(stopped_moving, Idle)
         .trans::<Walking, _>(step_off, Falling)
         // RUNNING
         .trans::<Running, _>(just_pressed(Action::Jump), SprintJumping)
+        .trans::<Running, _>(just_pressed(Action::Attack), RunningAttack)
         .trans::<Running, _>(walking, Walking)
         .trans::<Running, _>(stopped_moving, Idle)
         .trans::<Running, _>(step_off, Falling)
-        // AIR
+        // AIR (base)
+        .trans::<Jumping, _>(just_pressed(Action::Attack), JumpingAttack)
         .trans::<Jumping, _>(apex, Falling)
         .trans::<Jumping, _>(landed_sprinting, Running)
         .trans::<Jumping, _>(landed_walking,  Walking)
         .trans::<Jumping, _>(landed,           Idle)
+        .trans::<SprintJumping, _>(just_pressed(Action::Attack), JumpingAttack) 
         .trans::<SprintJumping, _>(apex, Falling)
         .trans::<SprintJumping, _>(landed_sprinting, Running)
         .trans::<SprintJumping, _>(landed_walking,  Walking)
         .trans::<SprintJumping, _>(landed,           Idle)
+        .trans::<Falling, _>(just_pressed(Action::Attack), FallingAttack)
         .trans::<Falling, _>(landed_sprinting, Running)
         .trans::<Falling, _>(landed_walking,  Walking)
-        .trans::<Falling, _>(landed,           Idle);
+        .trans::<Falling, _>(landed,           Idle)
+        // ATTACK (ground)
+        .trans::<IdleAttack, _>(attack_released, Idle)                  
+        .trans::<IdleAttack, _>(sprinting, RunningAttack)
+        .trans::<IdleAttack, _>(walking,  WalkingAttack)
+        .trans::<IdleAttack, _>(step_off, FallingAttack)
+
+        .trans::<WalkingAttack, _>(attack_released, Walking)            
+        .trans::<WalkingAttack, _>(sprinting, RunningAttack)
+        .trans::<WalkingAttack, _>(stopped_moving, IdleAttack)
+        .trans::<WalkingAttack, _>(step_off, FallingAttack)
+
+        .trans::<RunningAttack, _>(attack_released, Running)            
+        .trans::<RunningAttack, _>(walking,  WalkingAttack)
+        .trans::<RunningAttack, _>(stopped_moving, IdleAttack)
+        .trans::<RunningAttack, _>(step_off, FallingAttack)
+        // ATTACK (air)
+        .trans::<JumpingAttack, _>(attack_released, Jumping)            
+        .trans::<JumpingAttack, _>(apex,   FallingAttack)
+        .trans::<JumpingAttack, _>(landed_sprinting, RunningAttack)
+        .trans::<JumpingAttack, _>(landed_walking,  WalkingAttack)
+        .trans::<JumpingAttack, _>(landed,           IdleAttack)
+
+        .trans::<FallingAttack, _>(attack_released, Falling)            
+        .trans::<FallingAttack, _>(landed_sprinting, RunningAttack)
+        .trans::<FallingAttack, _>(landed_walking,  WalkingAttack)
+        .trans::<FallingAttack, _>(landed,           IdleAttack);
     commands
         .spawn(PlayerBundle {
             actor: Actor,
@@ -321,11 +387,23 @@ fn drive_animation(
         &mut CurrentAnim,
         Option<&Idle>, Option<&Walking>, Option<&Running>,
         Option<&Jumping>, Option<&Falling>, Option<&SprintJumping>,
+        /* attack states: */ 
+        Option<&IdleAttack>, Option<&WalkingAttack>, Option<&RunningAttack>,
+        Option<&JumpingAttack>, Option<&FallingAttack>,
         &LinearVelocity,
     ), With<Actor>>,
 ) {
-    for (clips, mut anim, mut current, idle, walking, running, jumping, falling, sprint_jumping, vel) in &mut q {
-        let want = if sprint_jumping.is_some() || jumping.is_some() {
+    for (clips, mut anim, mut current,
+         idle, walking, running, jumping, falling, sprint_jumping,
+         idle_a, walking_a, running_a, jumping_a, falling_a,
+         vel) in &mut q
+    {
+        let attacking = idle_a.is_some() || walking_a.is_some() || running_a.is_some()
+            || jumping_a.is_some() || falling_a.is_some();
+
+        let want = if attacking {
+            Some(clips.attack)
+        } else if sprint_jumping.is_some() || jumping.is_some() {
             clips.jump.or(clips.fall).or(Some(clips.idle))
         } else if falling.is_some() {
             if vel.y > 0.0 { clips.jump.or(clips.fall) } else { clips.fall }.or(Some(clips.idle))
@@ -358,18 +436,32 @@ fn debug_log_player_state(
             Option<&Jumping>,
             Option<&SprintJumping>,
             Option<&Falling>,
+            Option<&IdleAttack>,
+            Option<&WalkingAttack>,
+            Option<&RunningAttack>,
+            Option<&JumpingAttack>,
+            Option<&FallingAttack>,
         ),
         With<Actor>
     >,
     mut last: Local<Option<&'static str>>,
 ) {
-    for (_idle, walking, running, jumping, sprint_jump, falling) in &q {
-        let now: &'static str = if sprint_jump.is_some() { "SprintJumping" }
-        else if jumping.is_some() { "Jumping" }
-        else if falling.is_some() { "Falling" }
-        else if running.is_some() { "Running" }
-        else if walking.is_some() { "Walking" }
-        else { "Idle" };
+    for (idle, walking, running, jumping, sprint_jump, falling,
+         idle_a, walking_a, running_a, jumping_a, falling_a) in &q
+    {
+        let now: &'static str =
+            if idle_a.is_some() { "IdleAttack" }
+            else if walking_a.is_some() { "WalkingAttack" }
+            else if running_a.is_some() { "RunningAttack" }
+            else if jumping_a.is_some() { "JumpingAttack" }
+            else if falling_a.is_some() { "FallingAttack" }
+            else if sprint_jump.is_some() { "SprintJumping" }
+            else if jumping.is_some() { "Jumping" }
+            else if falling.is_some() { "Falling" }
+            else if running.is_some() { "Running" }
+            else if walking.is_some() { "Walking" }
+            else if idle.is_some() { "Idle" }
+            else { "Idle" };
 
         if last.as_deref() != Some(now) {
             info!("Player state → {}", now);
