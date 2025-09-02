@@ -45,6 +45,7 @@ pub struct SprintJumping;
 #[component(storage = "SparseSet")]
 pub struct Falling;
 
+// Attack states
 #[derive(Component, Reflect, Default, Debug, Clone)]
 #[component(storage = "SparseSet")]
 pub struct IdleAttack;
@@ -76,7 +77,7 @@ pub struct AnimClips {
     pub run:  Option<AnimationId>,
     pub jump: Option<AnimationId>,
     pub fall: Option<AnimationId>,
-    pub attack: AnimationId,
+    pub attack: AnimationId, // all attack states use the same clip for now
 }
 
 // ───────── Tuning ────────
@@ -87,6 +88,16 @@ const JUMP_VELOCITY: f32 = 520.0;
 // ───────── Tags ─────────
 #[derive(Component)]
 pub struct Actor;
+
+// ───────── Attack helpers ─────────
+#[derive(Component)]
+struct AttackCooldown(Timer); // prevents re-triggering too soon
+
+#[derive(Component)]
+struct AttackTimer(Timer); // one-shot lifetime for the attack state
+
+#[derive(Component)]
+struct AttackDone; // set when the one-shot timer completes
 
 // ───────── Bundle ─────────
 #[derive(Bundle)]
@@ -125,8 +136,8 @@ pub fn spawn_main_character(
         .expect("missing animation: player:idle");
 
     let attack_id = library
-    .animation_with_name("player_combat:idle_attack")
-    .expect("missing animation: player_combat:idle_attack");
+        .animation_with_name("player_combat:idle_attack")
+        .expect("missing animation: player_combat:idle_attack");
 
     let clips = AnimClips {
         idle: idle_id,
@@ -177,6 +188,7 @@ pub fn spawn_main_character(
     ) -> bool {
         let axis = act_q.get(e).ok().map(|a| a.value(&Action::Move)).unwrap_or(0.0);
         let vx   = vel_q.get(e).ok().map(|v| v.x).unwrap_or(0.0);
+        // Guard against flicker when reversing: if input & velocity oppose and speed is non-trivial, don't stop.
         if axis.abs() >= 0.10 && vx.abs() > 8.0 && axis.signum() != vx.signum() {
             return false;
         }
@@ -208,11 +220,9 @@ pub fn spawn_main_character(
     ) -> bool {
         let touching = contacts_q.get(e).ok().map(|c| !c.is_empty()).unwrap_or(false);
         if !touching { return false; }
-
         let vy = vel_q.get(e).ok().map(|v| v.y).unwrap_or(0.0);
         let is_falling = falling_q.get(e).is_ok();
         let landed_now = is_falling || vy <= 0.0;
-
         landed_now && act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() >= 0.5 && !a.pressed(&Action::Sprint)).unwrap_or(false)
     }
     fn landed_sprinting(
@@ -224,11 +234,9 @@ pub fn spawn_main_character(
     ) -> bool {
         let touching = contacts_q.get(e).ok().map(|c| !c.is_empty()).unwrap_or(false);
         if !touching { return false; }
-
         let vy = vel_q.get(e).ok().map(|v| v.y).unwrap_or(0.0);
         let is_falling = falling_q.get(e).is_ok();
         let landed_now = is_falling || vy <= 0.0;
-
         landed_now && act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() >= 0.5 && a.pressed(&Action::Sprint)).unwrap_or(false)
     }
     fn apex(In(e): In<Entity>, vel_q: Query<&LinearVelocity>, contacts_q: Query<&CollidingEntities>) -> bool {
@@ -236,72 +244,112 @@ pub fn spawn_main_character(
         let vy = vel_q.get(e).ok().map(|v| v.y).unwrap_or(0.0);
         in_air && vy <= 0.0
     }
-    fn attack_released(In(e): In<Entity>, act_q: Query<&ActionState<Action>>) -> bool {
-    act_q.get(e).ok().map(|a| !a.pressed(&Action::Attack)).unwrap_or(true)
+
+    // Attack triggers
+    fn attack_pressed_and_ready(
+        In(e): In<Entity>,
+        act_q: Query<&ActionState<Action>>,
+        cd_q: Query<&AttackCooldown>,
+    ) -> bool {
+        if let (Ok(a), Ok(cd)) = (act_q.get(e), cd_q.get(e)) {
+            a.just_pressed(&Action::Attack) && cd.0.finished()
+        } else {
+            false
+        }
+    }
+    fn attack_finished(In(e): In<Entity>, q: Query<&AttackDone>) -> bool {
+        q.get(e).is_ok()
+    }
+    fn attack_finished_walking(
+        In(e): In<Entity>,
+        done_q: Query<&AttackDone>,
+        act_q: Query<&ActionState<Action>>,
+    ) -> bool {
+        done_q.get(e).is_ok()
+            && act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() >= 0.5 && !a.pressed(&Action::Sprint)).unwrap_or(false)
+    }
+    fn attack_finished_sprinting(
+        In(e): In<Entity>,
+        done_q: Query<&AttackDone>,
+        act_q: Query<&ActionState<Action>>,
+    ) -> bool {
+        done_q.get(e).is_ok()
+            && act_q.get(e).ok().map(|a| a.value(&Action::Move).abs() >= 0.5 && a.pressed(&Action::Sprint)).unwrap_or(false)
     }
 
     // ───── Machine
     let machine = StateMachine::default()
         // IDLE
         .trans::<Idle, _>(just_pressed(Action::Jump), Jumping)
-        .trans::<Idle, _>(just_pressed(Action::Attack), IdleAttack)
+        .trans::<Idle, _>(attack_pressed_and_ready, IdleAttack)
         .trans::<Idle, _>(sprinting, Running)
         .trans::<Idle, _>(walking, Walking)
         .trans::<Idle, _>(step_off, Falling)
         // WALKING
         .trans::<Walking, _>(just_pressed(Action::Jump), Jumping)
-        .trans::<Walking, _>(just_pressed(Action::Attack), WalkingAttack)
+        .trans::<Walking, _>(attack_pressed_and_ready, WalkingAttack)
         .trans::<Walking, _>(sprinting, Running)
         .trans::<Walking, _>(stopped_moving, Idle)
         .trans::<Walking, _>(step_off, Falling)
         // RUNNING
         .trans::<Running, _>(just_pressed(Action::Jump), SprintJumping)
-        .trans::<Running, _>(just_pressed(Action::Attack), RunningAttack)
+        .trans::<Running, _>(attack_pressed_and_ready, RunningAttack)
         .trans::<Running, _>(walking, Walking)
         .trans::<Running, _>(stopped_moving, Idle)
         .trans::<Running, _>(step_off, Falling)
         // AIR (base)
-        .trans::<Jumping, _>(just_pressed(Action::Attack), JumpingAttack)
+        .trans::<Jumping, _>(attack_pressed_and_ready, JumpingAttack)
         .trans::<Jumping, _>(apex, Falling)
         .trans::<Jumping, _>(landed_sprinting, Running)
         .trans::<Jumping, _>(landed_walking,  Walking)
         .trans::<Jumping, _>(landed,           Idle)
-        .trans::<SprintJumping, _>(just_pressed(Action::Attack), JumpingAttack) 
+
+        .trans::<SprintJumping, _>(attack_pressed_and_ready, JumpingAttack)
         .trans::<SprintJumping, _>(apex, Falling)
         .trans::<SprintJumping, _>(landed_sprinting, Running)
         .trans::<SprintJumping, _>(landed_walking,  Walking)
         .trans::<SprintJumping, _>(landed,           Idle)
-        .trans::<Falling, _>(just_pressed(Action::Attack), FallingAttack)
+
+        .trans::<Falling, _>(attack_pressed_and_ready, FallingAttack)
         .trans::<Falling, _>(landed_sprinting, Running)
         .trans::<Falling, _>(landed_walking,  Walking)
         .trans::<Falling, _>(landed,           Idle)
-        // ATTACK (ground)
-        .trans::<IdleAttack, _>(attack_released, Idle)                  
+
+        // ATTACK (ground) — keep attack while moving; exit when timer finishes
+        .trans::<IdleAttack, _>(attack_finished_sprinting, Running)
+        .trans::<IdleAttack, _>(attack_finished_walking,  Walking)
+        .trans::<IdleAttack, _>(attack_finished,          Idle)
         .trans::<IdleAttack, _>(sprinting, RunningAttack)
         .trans::<IdleAttack, _>(walking,  WalkingAttack)
         .trans::<IdleAttack, _>(step_off, FallingAttack)
 
-        .trans::<WalkingAttack, _>(attack_released, Walking)            
+        .trans::<WalkingAttack, _>(attack_finished_sprinting, Running)
+        .trans::<WalkingAttack, _>(attack_finished_walking,  Walking)
+        .trans::<WalkingAttack, _>(attack_finished,          Idle)
         .trans::<WalkingAttack, _>(sprinting, RunningAttack)
         .trans::<WalkingAttack, _>(stopped_moving, IdleAttack)
         .trans::<WalkingAttack, _>(step_off, FallingAttack)
 
-        .trans::<RunningAttack, _>(attack_released, Running)            
+        .trans::<RunningAttack, _>(attack_finished_sprinting, Running)
+        .trans::<RunningAttack, _>(attack_finished_walking,  Walking)
+        .trans::<RunningAttack, _>(attack_finished,          Idle)
         .trans::<RunningAttack, _>(walking,  WalkingAttack)
         .trans::<RunningAttack, _>(stopped_moving, IdleAttack)
         .trans::<RunningAttack, _>(step_off, FallingAttack)
-        // ATTACK (air)
-        .trans::<JumpingAttack, _>(attack_released, Jumping)            
+
+        // ATTACK (air) — follow air logic; exit to air base when timer ends
+        .trans::<JumpingAttack, _>(attack_finished, Jumping)
         .trans::<JumpingAttack, _>(apex,   FallingAttack)
         .trans::<JumpingAttack, _>(landed_sprinting, RunningAttack)
         .trans::<JumpingAttack, _>(landed_walking,  WalkingAttack)
         .trans::<JumpingAttack, _>(landed,           IdleAttack)
 
-        .trans::<FallingAttack, _>(attack_released, Falling)            
+        .trans::<FallingAttack, _>(attack_finished, Falling)
         .trans::<FallingAttack, _>(landed_sprinting, RunningAttack)
         .trans::<FallingAttack, _>(landed_walking,  WalkingAttack)
         .trans::<FallingAttack, _>(landed,           IdleAttack);
-    commands
+
+    let entity = commands
         .spawn(PlayerBundle {
             actor: Actor,
             machine,
@@ -328,9 +376,14 @@ pub fn spawn_main_character(
             transform: Transform::default(),
             global_transform: GlobalTransform::default(),
         })
-        .insert(Name::new("Player"));
+        .insert(Name::new("Player"))
+        .id();
+
+    // Seed cooldown as "ready".
+    commands.entity(entity).insert(AttackCooldown(Timer::from_seconds(0.0, TimerMode::Once)));
 }
 
+// ───────── Motion ─────────
 fn drive_motion_set_velocity(
     time: Res<Time>,
     mut q: Query<(
@@ -379,6 +432,79 @@ fn face_by_input(mut q: Query<(&ActionState<Action>, &mut Sprite), With<Actor>>)
     }
 }
 
+// ───────── Attack timers/cooldowns ─────────
+fn tick_attack_timers(time: Res<Time>, mut q_cd: Query<&mut AttackCooldown, With<Actor>>, mut q_atk: Query<&mut AttackTimer, With<Actor>>) {
+    for mut cd in &mut q_cd {
+        cd.0.tick(time.delta());
+    }
+    for mut t in &mut q_atk {
+        t.0.tick(time.delta());
+    }
+}
+
+fn on_enter_attack_start_timer(
+    mut commands: Commands,
+    q: Query<
+        Entity,
+        Or<(
+            Added<IdleAttack>,
+            Added<WalkingAttack>,
+            Added<RunningAttack>,
+            Added<JumpingAttack>,
+            Added<FallingAttack>,
+        )>,
+    >,
+    mut q_cd: Query<&mut AttackCooldown>,
+) {
+    for e in &q {
+        commands.entity(e).insert(AttackTimer(Timer::from_seconds(0.5, TimerMode::Once)));
+        if let Ok(mut cd) = q_cd.get_mut(e) {
+            cd.0.reset();
+            cd.0.set_duration(std::time::Duration::from_secs_f32(0.0));
+        }
+        commands.entity(e).remove::<AttackDone>();
+    }
+}
+
+fn finish_attack_when_timer_done(
+    mut commands: Commands,
+    mut q: Query<(Entity, &AttackTimer, Option<&mut AttackCooldown>)>,
+) {
+    for (e, timer, cd) in &mut q {
+        if timer.0.finished() {
+            if let Some(mut c) = cd {
+                c.0.set_duration(std::time::Duration::from_secs_f32(0.1));
+                c.0.reset();
+            } else {
+                commands.entity(e).insert(AttackCooldown(Timer::from_seconds(0.1, TimerMode::Once)));
+            }
+            commands.entity(e)
+                .insert(AttackDone)
+                .remove::<AttackTimer>();
+        }
+    }
+}
+
+// Clear the "done" flag once we've actually left all attack states
+fn clear_attack_done(
+    mut commands: Commands,
+    q: Query<
+        Entity,
+        (
+            With<AttackDone>,
+            Without<IdleAttack>,
+            Without<WalkingAttack>,
+            Without<RunningAttack>,
+            Without<JumpingAttack>,
+            Without<FallingAttack>,
+        ),
+    >,
+) {
+    for e in &q {
+        commands.entity(e).remove::<AttackDone>();
+    }
+}
+
 // ───────── Animation ─────────
 fn drive_animation(
     mut q: Query<(
@@ -387,7 +513,7 @@ fn drive_animation(
         &mut CurrentAnim,
         Option<&Idle>, Option<&Walking>, Option<&Running>,
         Option<&Jumping>, Option<&Falling>, Option<&SprintJumping>,
-        /* attack states: */ 
+        // attack states:
         Option<&IdleAttack>, Option<&WalkingAttack>, Option<&RunningAttack>,
         Option<&JumpingAttack>, Option<&FallingAttack>,
         &LinearVelocity,
@@ -427,6 +553,7 @@ fn drive_animation(
     }
 }
 
+// ───────── Debug ─────────
 fn debug_log_player_state(
     q: Query<
         (
@@ -436,6 +563,7 @@ fn debug_log_player_state(
             Option<&Jumping>,
             Option<&SprintJumping>,
             Option<&Falling>,
+            // attack states
             Option<&IdleAttack>,
             Option<&WalkingAttack>,
             Option<&RunningAttack>,
@@ -480,6 +608,10 @@ impl Plugin for PlayerPlugin {
                 drive_motion_set_velocity,
                 face_by_input,
                 debug_log_player_state,
+                tick_attack_timers,            // attack timers
+                on_enter_attack_start_timer,   // start one-shot when entering attack
+                finish_attack_when_timer_done, // end one-shot + start cooldown
+                clear_attack_done,             // cleanup flag after exit
             ))
             .add_systems(PostUpdate, (
                 on_added_jumping_set_impulse,
