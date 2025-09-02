@@ -89,15 +89,15 @@ const JUMP_VELOCITY: f32 = 520.0;
 #[derive(Component)]
 pub struct Actor;
 
-// ───────── Attack helpers ─────────
+// ───────── Attacks ─────────
 #[derive(Component)]
-struct AttackCooldown(Timer); // prevents re-triggering too soon
+struct AttackCooldown(Timer);
 
 #[derive(Component)]
-struct AttackTimer(Timer); // one-shot lifetime for the attack state
+struct AttackTimer(Timer);
 
 #[derive(Component)]
-struct AttackDone; // set when the one-shot timer completes
+struct AttackDone;
 
 // ───────── Bundle ─────────
 #[derive(Bundle)]
@@ -170,7 +170,7 @@ pub fn spawn_main_character(
     let mut anim = SpritesheetAnimation::from_id(idle_id);
     anim.playing = true;
 
-    // ───── Minimal triggers (In<Entity>)
+    // Triggers
     fn walking(In(e): In<Entity>, act_q: Query<&ActionState<Action>>) -> bool {
         if let Ok(a) = act_q.get(e) {
             a.value(&Action::Move).abs() >= 0.5 && !a.pressed(&Action::Sprint)
@@ -188,7 +188,6 @@ pub fn spawn_main_character(
     ) -> bool {
         let axis = act_q.get(e).ok().map(|a| a.value(&Action::Move)).unwrap_or(0.0);
         let vx   = vel_q.get(e).ok().map(|v| v.x).unwrap_or(0.0);
-        // Guard against flicker when reversing: if input & velocity oppose and speed is non-trivial, don't stop.
         if axis.abs() >= 0.10 && vx.abs() > 8.0 && axis.signum() != vx.signum() {
             return false;
         }
