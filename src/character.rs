@@ -77,7 +77,7 @@ pub struct AnimClips {
     pub run:  Option<AnimationId>,
     pub jump: Option<AnimationId>,
     pub fall: Option<AnimationId>,
-    pub attack: AnimationId, // all attack states use the same clip for now
+    pub attack: AnimationId,
 }
 
 // ───────── Tuning ────────
@@ -377,8 +377,6 @@ pub fn spawn_main_character(
         })
         .insert(Name::new("Player"))
         .id();
-
-    // Seed cooldown as "ready".
     commands.entity(entity).insert(AttackCooldown(Timer::from_seconds(0.0, TimerMode::Once)));
 }
 
@@ -484,7 +482,6 @@ fn finish_attack_when_timer_done(
     }
 }
 
-// Clear the "done" flag once we've actually left all attack states
 fn clear_attack_done(
     mut commands: Commands,
     q: Query<
@@ -512,7 +509,6 @@ fn drive_animation(
         &mut CurrentAnim,
         Option<&Idle>, Option<&Walking>, Option<&Running>,
         Option<&Jumping>, Option<&Falling>, Option<&SprintJumping>,
-        // attack states:
         Option<&IdleAttack>, Option<&WalkingAttack>, Option<&RunningAttack>,
         Option<&JumpingAttack>, Option<&FallingAttack>,
         &LinearVelocity,
@@ -562,7 +558,6 @@ fn debug_log_player_state(
             Option<&Jumping>,
             Option<&SprintJumping>,
             Option<&Falling>,
-            // attack states
             Option<&IdleAttack>,
             Option<&WalkingAttack>,
             Option<&RunningAttack>,
@@ -607,10 +602,10 @@ impl Plugin for PlayerPlugin {
                 drive_motion_set_velocity,
                 face_by_input,
                 debug_log_player_state,
-                tick_attack_timers,            // attack timers
-                on_enter_attack_start_timer,   // start one-shot when entering attack
-                finish_attack_when_timer_done, // end one-shot + start cooldown
-                clear_attack_done,             // cleanup flag after exit
+                tick_attack_timers,
+                on_enter_attack_start_timer,
+                finish_attack_when_timer_done,
+                clear_attack_done,
             ))
             .add_systems(PostUpdate, (
                 on_added_jumping_set_impulse,
