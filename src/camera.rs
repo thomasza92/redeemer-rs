@@ -58,7 +58,7 @@ pub fn camera_follow(
     let target_xy  = player_gt.translation().truncate() + cam_adjust;
     let current_xy = cam_tf.translation.truncate() + cam_adjust;
 
-    let t = 1.0 - (-5.0 * time.delta_secs()).exp();
+    let t = 1.0 - (-10.0 * time.delta_secs()).exp();
     let new_xy = current_xy.lerp(target_xy, t);
 
     cam_tf.translation.x = new_xy.x;
