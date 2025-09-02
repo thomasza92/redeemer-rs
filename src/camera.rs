@@ -53,9 +53,10 @@ pub fn camera_follow(
 ) {
     let Ok(player_gt) = player_q.single() else { return; };
     let Ok(mut cam_tf)  = cam_q.single_mut() else { return; };
+    let cam_adjust = Vec2::new(0., 3.);
 
-    let target_xy  = player_gt.translation().truncate();
-    let current_xy = cam_tf.translation.truncate();
+    let target_xy  = player_gt.translation().truncate() + cam_adjust;
+    let current_xy = cam_tf.translation.truncate() + cam_adjust;
 
     let t = 1.0 - (-5.0 * time.delta_secs()).exp();
     let new_xy = current_xy.lerp(target_xy, t);

@@ -21,7 +21,7 @@ const ROWS: usize = 48;
 const FRAME_W: u32 = 96;
 const FRAME_H: u32 = 84;
 const ROW_LAST: [usize; ROWS] = [
-    6,7,7,2,0,0,0,7,5,7,7,0,1,1,2,3,5,7,7,5,7,7,7,6,7,7,7,7,7,6,6,6,6,6,6,6,6,6,6,6,6,6,5,5,5,5,6,6
+    6,7,7,2,0,0,0,0,5,7,7,0,1,1,2,3,5,7,7,5,7,7,7,6,7,7,7,7,7,6,6,6,6,6,6,6,6,6,6,6,6,6,5,5,5,5,6,6
 ];
 
 const DEFAULT_FRAME_MS: u32 = 100;
@@ -67,8 +67,11 @@ fn register_player_animations(
     if let Some(id) = library.animation_with_name("player:row02") {
         let _ = library.name_animation(id, "player:run");
     }
-    if let Some(id) = library.animation_with_name("player:row04") {
+    if let Some(id) = library.animation_with_name("player:row05") {
         let _ = library.name_animation(id, "player:jump");
+    }
+    if let Some(id) = library.animation_with_name("player:row06") {
+        let _ = library.name_animation(id, "player:fall");
     }
     if let Some(id) = library.animation_with_name("player:row43") {
         let _ = library.name_animation(id, "player:attack");

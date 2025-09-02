@@ -13,6 +13,8 @@ leafwing-input-manager = "0.17.1"
 bevy_light_2d = "0.7.0"
 seldom_state = { version = "0.14.0", features = ["leafwing_input"] }
 bevy_spritesheet_animation = { version = "3.1.0", default-features = false }
+bevy-inspector-egui = "0.33.1"
+bevy_egui = "0.36.0"
 
 [profile.dev]
 opt-level = 1
