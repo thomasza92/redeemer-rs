@@ -6,9 +6,11 @@ use avian2d::prelude::*;
 use seldom_state::prelude::*;
 use seldom_state::trigger::just_pressed;
 use bevy::log::info;
-
 use crate::level::PassThroughOneWayPlatform;
 use crate::animations::PlayerSpritesheet;
+use std::collections::HashMap;
+use serde::Deserialize;
+use crate::animations::{DEFAULT_FRAME_MS, to_anim_name};
 
 // ───────── Input ─────────
 #[derive(Actionlike, Clone, Eq, Hash, PartialEq, Reflect, Debug)]
@@ -45,7 +47,8 @@ pub struct SprintJumping;
 #[component(storage = "SparseSet")]
 pub struct Falling;
 
-// Attack states
+// Attack states & animation handling
+
 #[derive(Component, Reflect, Default, Debug, Clone)]
 #[component(storage = "SparseSet")]
 pub struct IdleAttack;
@@ -66,6 +69,34 @@ pub struct JumpingAttack;
 #[component(storage = "SparseSet")]
 pub struct FallingAttack;
 
+#[derive(Component, Clone)]
+struct AttackDurationsComp {
+    idle: f32,
+    walk: f32,
+    run:  f32,
+    jump: f32,
+    fall: f32,
+}
+#[derive(Deserialize)]
+struct MiniAnim { name: String, last_col: usize }
+#[derive(Deserialize)]
+struct MiniManifest { animations: Vec<MiniAnim> }
+
+fn load_anim_seconds_from_json(json_path: &str) -> HashMap<String, f32> {
+    let mut map = HashMap::new();
+    if let Ok(text) = std::fs::read_to_string(json_path) {
+        if let Ok(manifest) = serde_json::from_str::<MiniManifest>(&text) {
+            for a in manifest.animations {
+                let pretty = to_anim_name(&a.name);
+                let frames = a.last_col as u32;
+                let secs = (frames * DEFAULT_FRAME_MS) as f32 / 1000.0;
+                map.insert(pretty, secs);
+            }
+        }
+    }
+    map
+}
+
 // ───────── Animation ────────
 #[derive(Component, Clone, Copy)]
 struct CurrentAnim(AnimationId);
@@ -77,13 +108,18 @@ pub struct AnimClips {
     pub run:  Option<AnimationId>,
     pub jump: Option<AnimationId>,
     pub fall: Option<AnimationId>,
-    pub attack: AnimationId,
+    pub attack_idle:  AnimationId,
+    pub attack_walk:  Option<AnimationId>,
+    pub attack_run:   Option<AnimationId>,
+    pub attack_jump:  Option<AnimationId>,
+    pub attack_fall:  Option<AnimationId>,
 }
 
 // ───────── Tuning ────────
 const PLAYER_SPEED: f32 = 160.0;
 const SPRINT_MULTIPLIER: f32 = 1.75;
 const JUMP_VELOCITY: f32 = 520.0;
+const ATTACK_COOLDOWN_S: f32 = 0.15;
 
 // ───────── Tags ─────────
 #[derive(Component)]
@@ -132,20 +168,21 @@ pub fn spawn_main_character(
 ) {
     // Anim IDs
     let idle_id = library
-        .animation_with_name("player:idle")
-        .expect("missing animation: player:idle");
-
-    let attack_id = library
-        .animation_with_name("player_combat:idle_attack")
-        .expect("missing animation: player_combat:idle_attack");
+        .animation_with_name("player_combat:swordidle")
+        .expect("missing animation: player_combat:swordidle");
 
     let clips = AnimClips {
         idle: idle_id,
-        walk:  library.animation_with_name("player:walk"),
-        run:   library.animation_with_name("player:run"),
-        jump:  library.animation_with_name("player:jump"),
-        fall:  library.animation_with_name("player:fall"),
-        attack: attack_id,
+        walk:  library.animation_with_name("player_combat:swordrun"),
+        run:   library.animation_with_name("player_combat:swordsprint"),
+        jump:  library.animation_with_name("player_combat:swordjumpmid"),
+        fall:  library.animation_with_name("player_combat:swordjumpfall"),
+        attack_idle: library.animation_with_name("player_combat:standingslash")
+            .expect("missing animation: player_combat:standingslash"),
+        attack_walk: library.animation_with_name("player_combat:swordrunslash"),
+        attack_run:  library.animation_with_name("player_combat:swordsprintslash"),
+        attack_jump: library.animation_with_name("player_combat:airslashup"),
+        attack_fall: library.animation_with_name("player_combat:airslashdown"),
     };
 
     // Sprite
@@ -153,11 +190,11 @@ pub fn spawn_main_character(
         sheet.image.clone(),
         TextureAtlas { layout: sheet.layout.clone(), ..Default::default() },
     );
-    sprite.anchor = Anchor::Custom(Vec2::new(0.0, -0.25));
+    sprite.anchor = Anchor::Custom(Vec2::new(0.0, -0.3));
 
     // Input
     let input_map = InputMap::default()
-        .with_axis(Action::Move, VirtualAxis::horizontal_arrow_keys())
+        .with_axis(Action::Move, VirtualAxis::new(KeyCode::KeyA, KeyCode::KeyD))
         .with_axis(Action::Move, GamepadControlAxis::new(GamepadAxis::LeftStickX))
         .with(Action::Jump, KeyCode::Space)
         .with(Action::Jump, GamepadButton::South)
@@ -169,6 +206,15 @@ pub fn spawn_main_character(
     // Anim
     let mut anim = SpritesheetAnimation::from_id(idle_id);
     anim.playing = true;
+    let secs_map = load_anim_seconds_from_json("assets/PlayerSheet2.json");
+    let dur_idle  = *secs_map.get("player_combat:standingslash").unwrap_or(&0.5);
+    let dur_walk  = *secs_map.get("player_combat:swordrunslash").unwrap_or(&dur_idle);
+    let dur_run   = *secs_map.get("player_combat:swordsprintslash").unwrap_or(&dur_walk);
+    let dur_jump  = *secs_map.get("player_combat:airslashup").unwrap_or(&dur_idle);
+    let dur_fall  = *secs_map.get("player_combat:airslashdown").unwrap_or(&dur_jump);
+    let attack_durs = AttackDurationsComp {
+        idle: dur_idle, walk: dur_walk, run: dur_run, jump: dur_jump, fall: dur_fall
+    };
 
     // Triggers
     fn walking(In(e): In<Entity>, act_q: Query<&ActionState<Action>>) -> bool {
@@ -353,12 +399,10 @@ pub fn spawn_main_character(
             actor: Actor,
             machine,
             idle: Idle,
-
             sprite,
             anim,
             clips,
             current: CurrentAnim(idle_id),
-
             body: RigidBody::Dynamic,
             lock: LockedAxes::ROTATION_LOCKED,
             restitution: Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
@@ -368,13 +412,12 @@ pub fn spawn_main_character(
             speculative: SpeculativeMargin(0.1),
             collisions: CollidingEntities::default(),
             one_way: PassThroughOneWayPlatform::Never,
-
             input_map,
             action_state: ActionState::default(),
-
             transform: Transform::default(),
             global_transform: GlobalTransform::default(),
         })
+        .insert(attack_durs)
         .insert(Name::new("Player"))
         .id();
     commands.entity(entity).insert(AttackCooldown(Timer::from_seconds(0.0, TimerMode::Once)));
@@ -441,7 +484,7 @@ fn tick_attack_timers(time: Res<Time>, mut q_cd: Query<&mut AttackCooldown, With
 
 fn on_enter_attack_start_timer(
     mut commands: Commands,
-    q: Query<
+    q_added: Query<
         Entity,
         Or<(
             Added<IdleAttack>,
@@ -451,13 +494,33 @@ fn on_enter_attack_start_timer(
             Added<FallingAttack>,
         )>,
     >,
+    q_state: Query<
+        (
+            Option<&IdleAttack>, Option<&WalkingAttack>, Option<&RunningAttack>,
+            Option<&JumpingAttack>, Option<&FallingAttack>,
+        ), With<Actor>>,
+    _q_clips: Query<&AnimClips, With<Actor>>,
+    q_durs:  Query<&AttackDurationsComp, With<Actor>>,
     mut q_cd: Query<&mut AttackCooldown>,
 ) {
-    for e in &q {
-        commands.entity(e).insert(AttackTimer(Timer::from_seconds(0.5, TimerMode::Once)));
+    for e in &q_added {
+        let d = q_durs.get(e).ok().cloned().unwrap_or(AttackDurationsComp { idle:0.5, walk:0.5, run:0.5, jump:0.5, fall:0.5 });
+        let (idle_a, walk_a, run_a, jump_a, fall_a) = q_state.get(e).ok().unwrap_or((None, None, None, None, None));
+        let secs = if idle_a.is_some()   { d.idle }
+                   else if walk_a.is_some() { d.walk }
+                   else if run_a.is_some()  { d.run }
+                   else if jump_a.is_some() { d.jump }
+                   else if fall_a.is_some() { d.fall }
+                   else { d.idle };
+
+        commands.entity(e).insert(AttackTimer(Timer::from_seconds(secs, TimerMode::Once)));
+
+        // Reset / clear cooldown while attack is playing
         if let Ok(mut cd) = q_cd.get_mut(e) {
             cd.0.reset();
             cd.0.set_duration(std::time::Duration::from_secs_f32(0.0));
+        } else {
+            commands.entity(e).insert(AttackCooldown(Timer::from_seconds(0.0, TimerMode::Once)));
         }
         commands.entity(e).remove::<AttackDone>();
     }
@@ -469,11 +532,12 @@ fn finish_attack_when_timer_done(
 ) {
     for (e, timer, cd) in &mut q {
         if timer.0.finished() {
+            let secs = ATTACK_COOLDOWN_S;
             if let Some(mut c) = cd {
-                c.0.set_duration(std::time::Duration::from_secs_f32(0.1));
+                c.0.set_duration(std::time::Duration::from_secs_f32(secs));
                 c.0.reset();
             } else {
-                commands.entity(e).insert(AttackCooldown(Timer::from_seconds(0.1, TimerMode::Once)));
+                commands.entity(e).insert(AttackCooldown(Timer::from_seconds(secs, TimerMode::Once)));
             }
             commands.entity(e)
                 .insert(AttackDone)
@@ -515,15 +579,21 @@ fn drive_animation(
     ), With<Actor>>,
 ) {
     for (clips, mut anim, mut current,
-         idle, walking, running, jumping, falling, sprint_jumping,
+         _idle, walking, running, jumping, falling, sprint_jumping,
          idle_a, walking_a, running_a, jumping_a, falling_a,
          vel) in &mut q
     {
-        let attacking = idle_a.is_some() || walking_a.is_some() || running_a.is_some()
-            || jumping_a.is_some() || falling_a.is_some();
-
-        let want = if attacking {
-            Some(clips.attack)
+        // Attack takes precedence; pick specific attack clip per state
+        let want = if let Some(_) = idle_a {
+            Some(clips.attack_idle)
+        } else if let Some(_) = walking_a {
+            clips.attack_walk.or(Some(clips.attack_idle))
+        } else if let Some(_) = running_a {
+            clips.attack_run.or(clips.attack_walk).or(Some(clips.attack_idle))
+        } else if let Some(_) = jumping_a {
+            clips.attack_jump.or(Some(clips.attack_idle))
+        } else if let Some(_) = falling_a {
+            clips.attack_fall.or(clips.attack_jump).or(Some(clips.attack_idle))
         } else if sprint_jumping.is_some() || jumping.is_some() {
             clips.jump.or(clips.fall).or(Some(clips.idle))
         } else if falling.is_some() {
@@ -532,8 +602,6 @@ fn drive_animation(
             clips.run.or(clips.walk).or(Some(clips.idle))
         } else if walking.is_some() {
             clips.walk.or(Some(clips.idle))
-        } else if idle.is_some() {
-            Some(clips.idle)
         } else {
             Some(clips.idle)
         };

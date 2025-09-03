@@ -1,52 +1,114 @@
 use bevy::prelude::*;
 use bevy_spritesheet_animation::prelude::*;
+use serde::Deserialize;
+use std::fs;
+
+pub const DEFAULT_FRAME_MS: u32 = 100;
 
 pub struct PlayerAnimationsPlugin;
 
 impl Plugin for PlayerAnimationsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayerSpritesheet>()
-            .add_systems(Startup, (load_player_spritesheet, register_player_animations));
+            .add_systems(Startup, (load_player_spritesheet, register_player_animations).chain());
     }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct AnimationEntry {
+    name: String,
+    row: usize,
+    #[serde(rename = "frame_count", default)]
+    _frame_count: usize,
+    last_col: usize,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct SheetManifest {
+    sheet_image: String,
+    columns: usize,
+    rows: usize,
+    frame_w: u32,
+    frame_h: u32,
+    animations: Vec<AnimationEntry>,
 }
 
 #[derive(Resource, Default)]
 pub struct PlayerSpritesheet {
     pub image: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
+    manifest: Option<SheetManifest>,
 }
-
-const COLUMNS: usize = 14;
-const ROWS: usize = 83;
-const FRAME_W: u32 = 96;
-const FRAME_H: u32 = 84;
-const ROW_LAST: [usize; ROWS] = [
-    6,7,7,2,0,0,0,0,5,7,7,0,1,1,2,3,5,7,7,5,7,7,7,6,7,7,7,7,7,6,6,6,6,6,6,6,6,6,6,6,6,6,5,5,5,5,6,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5
-];
-
-const DEFAULT_FRAME_MS: u32 = 100;
-
 fn load_player_spritesheet(
     mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     assets: Res<AssetServer>,
     mut sheet: ResMut<PlayerSpritesheet>,
 ) {
-    sheet.image = assets.load("PlayerSheet2.png");
+    let json_path = "assets/PlayerSheet2.json";
+    let json_text = fs::read_to_string(json_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {}", json_path, e));
 
-    let spritesheet = Spritesheet::new(COLUMNS, ROWS);
-    sheet.layout = atlas_layouts.add(spritesheet.atlas_layout(FRAME_W, FRAME_H));
+    let manifest: SheetManifest =
+        serde_json::from_str(&json_text).expect("PlayerSheet2.json malformed");
+    sheet.image = assets.load(&manifest.sheet_image);
+    let spritesheet = Spritesheet::new(manifest.columns, manifest.rows);
+    sheet.layout = atlas_layouts.add(spritesheet.atlas_layout(manifest.frame_w, manifest.frame_h));
+
+    sheet.manifest = Some(manifest);
 }
 
+pub fn to_anim_name(raw: &str) -> String {
+    fn slug(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut prev_us = false;
+        for ch in s.chars() {
+            let c = ch.to_ascii_lowercase();
+            if c.is_ascii_alphanumeric() {
+                out.push(c);
+                prev_us = false;
+            } else if !prev_us {
+                out.push('_');
+                prev_us = true;
+            }
+        }
+        out.trim_matches('_').to_string()
+    }
+    let mut parts: Vec<String> = raw
+        .replace(['\\', '/'], "/")
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(slug)
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if parts.is_empty() {
+        return "player:unnamed".to_string();
+    }
+    let last = parts.pop().unwrap();
+    let mut prefix = String::from("player");
+    if !parts.is_empty() {
+        prefix.push('_');
+        prefix.push_str(&parts.join("_"));
+    }
+
+    format!("{}:{}", prefix, last)
+}
 fn register_player_animations(
     mut library: ResMut<AnimationLibrary>,
+    sheet: Res<PlayerSpritesheet>,
 ) {
-    let spritesheet = Spritesheet::new(COLUMNS, ROWS);
+    let Some(manifest) = &sheet.manifest else {
+        warn!("PlayerSpritesheet manifest not loaded yet");
+        return;
+    };
 
-    for (row, &last_col) in ROW_LAST.iter().enumerate() {
-        let frames = if last_col + 1 == COLUMNS {
-            spritesheet.row(row)
+    let spritesheet = Spritesheet::new(manifest.columns, manifest.rows);
+
+    for a in &manifest.animations {
+        let frames = if a.last_col + 1 == manifest.columns {
+            spritesheet.row(a.row)
         } else {
-            spritesheet.row_partial(row, 0..=last_col)
+            spritesheet.row_partial(a.row, 0..=a.last_col)
         };
 
         let clip = Clip::from_frames(frames)
@@ -55,25 +117,23 @@ fn register_player_animations(
         let clip_id = library.register_clip(clip);
         let anim_id = library.register_animation(Animation::from_clip(clip_id));
 
-        let _ = library.name_animation(anim_id, &format!("player:row{:02}", row));
+        let pretty = to_anim_name(&a.name);
+        let _ = library.name_animation(anim_id, &pretty);
+        bevy::log::info!(
+            "registered animation: {:<32} | row {:02} | frames 0..={}",
+            pretty,
+            a.row,
+            a.last_col
+        );
     }
 
-    if let Some(id) = library.animation_with_name("player:row00") {
-        let _ = library.name_animation(id, "player:idle");
-    }
-    if let Some(id) = library.animation_with_name("player:row01") {
-        let _ = library.name_animation(id, "player:walk");
-    }
-    if let Some(id) = library.animation_with_name("player:row02") {
-        let _ = library.name_animation(id, "player:run");
-    }
-    if let Some(id) = library.animation_with_name("player:row05") {
-        let _ = library.name_animation(id, "player:jump");
-    }
-    if let Some(id) = library.animation_with_name("player:row06") {
-        let _ = library.name_animation(id, "player:fall");
-    }
-    if let Some(id) = library.animation_with_name("player:row77") {
-        let _ = library.name_animation(id, "player_combat:idle_attack");
-    }
+    bevy::log::info!(
+        "registered {} player animations from {} ({}x{} cells, frame {}x{})",
+        manifest.animations.len(),
+        manifest.sheet_image,
+        manifest.columns,
+        manifest.rows,
+        manifest.frame_w,
+        manifest.frame_h
+    );
 }
