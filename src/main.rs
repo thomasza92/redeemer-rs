@@ -4,6 +4,7 @@ mod animations;
 mod character;
 mod class;
 mod prelude;
+mod hud;
 
 use crate::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -14,6 +15,7 @@ use crate::level::{spawn_map, pass_through_one_way_platform, PlatformerCollision
 use crate::character::{Action, spawn_main_character};
 use crate::camera::{spawn_follow_camera, camera_follow, spawn_streetlights};
 use crate::class::ClassPlugin;
+use crate::hud::HudPlugin;
 
 fn main() {
     App::new()
@@ -51,6 +53,7 @@ fn main() {
         .add_plugins(ClassPlugin::new("assets/class_unknown.json")
                 .spawn_debug_holder(false),
         )
+        .add_plugins(HudPlugin)
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
         .insert_resource(Gravity(Vector::NEG_Y * 1000.0))
         .add_systems(Startup, (spawn_map, spawn_main_character, spawn_follow_camera, spawn_streetlights))
