@@ -3,14 +3,9 @@ mod camera;
 mod animations;
 mod character;
 mod class;
+mod prelude;
 
-use avian2d::{math::*, prelude::*};
-use bevy::prelude::*;
-use bevy_ecs_tiled::prelude::*;
-use bevy_light_2d::prelude::*;
-use leafwing_input_manager::prelude::*;
-use seldom_state::prelude::*;
-use bevy_spritesheet_animation::prelude::*;
+use crate::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_egui::EguiPlugin;
 use crate::animations::PlayerAnimationsPlugin;

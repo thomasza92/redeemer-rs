@@ -1,6 +1,5 @@
-use bevy::prelude::*;
+use crate::prelude::*;
 use crate::character::Player;
-use bevy_light_2d::prelude::*;
 
 #[derive(Component)]
 pub struct MainCamera;

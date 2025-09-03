@@ -1,12 +1,8 @@
-use avian2d::{math::*, prelude::*};
-use bevy::{
-    ecs::{
+use crate::prelude::*;
+use bevy::ecs::{
         entity::hash_set::EntityHashSet,
-        system::{SystemParam, lifetimeless::Read},
-    },
-    prelude::*,
-};
-use bevy_ecs_tiled::prelude::*;
+        system::{SystemParam, lifetimeless::Read}
+    };
 use crate::character::Player;
 
 pub fn spawn_map(

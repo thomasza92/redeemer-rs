@@ -1,9 +1,5 @@
-use bevy::prelude::*;
+use crate::prelude::*;
 use bevy::sprite::Anchor;
-use bevy_spritesheet_animation::prelude::*;
-use leafwing_input_manager::prelude::*;
-use avian2d::prelude::*;
-use seldom_state::prelude::*;
 use seldom_state::trigger::just_pressed;
 use bevy::log::info;
 use crate::level::PassThroughOneWayPlatform;

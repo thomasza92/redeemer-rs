@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use crate::prelude::*;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize, Reflect, Resource)]
