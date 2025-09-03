@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::character::Actor;
+use crate::character::Player;
 use bevy_light_2d::prelude::*;
 
 #[derive(Component)]
@@ -48,8 +48,8 @@ pub fn spawn_streetlights(mut commands: Commands) {
 
 pub fn camera_follow(
     time: Res<Time>,
-    player_q: Query<&GlobalTransform, With<Actor>>,
-    mut cam_q: Query<&mut bevy::prelude::Transform, (With<MainCamera>, Without<Actor>)>,
+    player_q: Query<&GlobalTransform, With<Player>>,
+    mut cam_q: Query<&mut bevy::prelude::Transform, (With<MainCamera>, Without<Player>)>,
 ) {
     let Ok(player_gt) = player_q.single() else { return; };
     let Ok(mut cam_tf)  = cam_q.single_mut() else { return; };

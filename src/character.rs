@@ -11,6 +11,7 @@ use crate::animations::PlayerSpritesheet;
 use std::collections::HashMap;
 use serde::Deserialize;
 use crate::animations::{DEFAULT_FRAME_MS, to_anim_name};
+use crate::class::*;
 
 // ───────── Input ─────────
 #[derive(Actionlike, Clone, Eq, Hash, PartialEq, Reflect, Debug)]
@@ -123,7 +124,7 @@ const ATTACK_COOLDOWN_S: f32 = 0.15;
 
 // ───────── Tags ─────────
 #[derive(Component)]
-pub struct Actor;
+pub struct Player;
 
 // ───────── Attacks ─────────
 #[derive(Component)]
@@ -138,7 +139,8 @@ struct AttackDone;
 // ───────── Bundle ─────────
 #[derive(Bundle)]
 struct PlayerBundle {
-    actor: Actor,
+    player: Player,
+    class: ClassAttachTarget,
     machine: StateMachine,
     idle: Idle,
     sprite: Sprite,
@@ -396,7 +398,8 @@ pub fn spawn_main_character(
 
     let entity = commands
         .spawn(PlayerBundle {
-            actor: Actor,
+            player: Player,
+            class: ClassAttachTarget,
             machine,
             idle: Idle,
             sprite,
@@ -432,7 +435,7 @@ fn drive_motion_set_velocity(
         Option<&Jumping>,
         Option<&Falling>,
         Option<&SprintJumping>,
-    ), With<Actor>>,
+    ), With<Player>>,
 ) {
     for (actions, mut vel, jumping, falling, sprint_jumping) in &mut q {
         let axis = actions.value(&Action::Move);
@@ -464,7 +467,7 @@ fn on_added_jumping_set_impulse(
     }
 }
 
-fn face_by_input(mut q: Query<(&ActionState<Action>, &mut Sprite), With<Actor>>) {
+fn face_by_input(mut q: Query<(&ActionState<Action>, &mut Sprite), With<Player>>) {
     for (actions, mut sprite) in &mut q {
         let axis = actions.value(&Action::Move);
         if axis > 0.1 { sprite.flip_x = false; }
@@ -473,7 +476,7 @@ fn face_by_input(mut q: Query<(&ActionState<Action>, &mut Sprite), With<Actor>>)
 }
 
 // ───────── Attack timers/cooldowns ─────────
-fn tick_attack_timers(time: Res<Time>, mut q_cd: Query<&mut AttackCooldown, With<Actor>>, mut q_atk: Query<&mut AttackTimer, With<Actor>>) {
+fn tick_attack_timers(time: Res<Time>, mut q_cd: Query<&mut AttackCooldown, With<Player>>, mut q_atk: Query<&mut AttackTimer, With<Player>>) {
     for mut cd in &mut q_cd {
         cd.0.tick(time.delta());
     }
@@ -498,9 +501,9 @@ fn on_enter_attack_start_timer(
         (
             Option<&IdleAttack>, Option<&WalkingAttack>, Option<&RunningAttack>,
             Option<&JumpingAttack>, Option<&FallingAttack>,
-        ), With<Actor>>,
-    _q_clips: Query<&AnimClips, With<Actor>>,
-    q_durs:  Query<&AttackDurationsComp, With<Actor>>,
+        ), With<Player>>,
+    _q_clips: Query<&AnimClips, With<Player>>,
+    q_durs:  Query<&AttackDurationsComp, With<Player>>,
     mut q_cd: Query<&mut AttackCooldown>,
 ) {
     for e in &q_added {
@@ -515,7 +518,6 @@ fn on_enter_attack_start_timer(
 
         commands.entity(e).insert(AttackTimer(Timer::from_seconds(secs, TimerMode::Once)));
 
-        // Reset / clear cooldown while attack is playing
         if let Ok(mut cd) = q_cd.get_mut(e) {
             cd.0.reset();
             cd.0.set_duration(std::time::Duration::from_secs_f32(0.0));
@@ -576,7 +578,7 @@ fn drive_animation(
         Option<&IdleAttack>, Option<&WalkingAttack>, Option<&RunningAttack>,
         Option<&JumpingAttack>, Option<&FallingAttack>,
         &LinearVelocity,
-    ), With<Actor>>,
+    ), With<Player>>,
 ) {
     for (clips, mut anim, mut current,
          _idle, walking, running, jumping, falling, sprint_jumping,
@@ -632,7 +634,7 @@ fn debug_log_player_state(
             Option<&JumpingAttack>,
             Option<&FallingAttack>,
         ),
-        With<Actor>
+        With<Player>
     >,
     mut last: Local<Option<&'static str>>,
 ) {

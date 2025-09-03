@@ -7,7 +7,7 @@ use bevy::{
     prelude::*,
 };
 use bevy_ecs_tiled::prelude::*;
-use crate::character::Actor;
+use crate::character::Player;
 
 pub fn spawn_map(
     mut commands: Commands,
@@ -42,9 +42,9 @@ pub enum PassThroughOneWayPlatform {
 pub fn pass_through_one_way_platform(
     mut commands: Commands,
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut actors: Query<(Entity, &mut PassThroughOneWayPlatform), With<Actor>>,
+    mut players: Query<(Entity, &mut PassThroughOneWayPlatform), With<Player>>,
 ) {
-    for (entity, mut pass_through_one_way_platform) in &mut actors {
+    for (entity, mut pass_through_one_way_platform) in &mut players {
         if keyboard_input.pressed(KeyCode::ArrowDown) && keyboard_input.pressed(KeyCode::Space) {
             *pass_through_one_way_platform = PassThroughOneWayPlatform::Always;
             commands.queue(WakeUpBody(entity));
