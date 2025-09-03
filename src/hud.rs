@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use bevy::ui::GlobalZIndex;
 use crate::class::{PlayerClass, ClassAttachTarget};
+use crate::gameflow::GameState;
 
 pub struct HudPlugin;
 
@@ -9,7 +10,8 @@ impl Plugin for HudPlugin {
         app
             .init_resource::<PlayerStats>()
             .init_resource::<HudClassSyncState>()
-            .add_systems(PreStartup, spawn_hud)
+            .add_systems(OnEnter(GameState::InGame), spawn_hud)
+            .add_systems(OnExit(GameState::InGame), despawn_hud)
             .add_systems(
                 Update,
                 (
@@ -18,10 +20,15 @@ impl Plugin for HudPlugin {
                     update_stamina_bar,
                     update_health_text,
                     update_stamina_text,
-                ).chain(),
+                )
+                .chain()
+                .run_if(in_state(GameState::InGame)),
             );
     }
 }
+
+#[derive(Component)]
+struct HudRoot;
 
 #[derive(Resource)]
 pub struct PlayerStats {
@@ -229,5 +236,11 @@ fn update_stamina_text(stats: Res<PlayerStats>, mut q: Query<&mut Text, With<Sta
     if let Ok(mut text) = q.single_mut() {
         let cur = stats.stamina.clamp(0.0, stats.max_stamina);
         *text = Text::new(format!("{:.0}/{:.0}", cur, stats.max_stamina));
+    }
+}
+
+fn despawn_hud(mut commands: Commands, q: Query<Entity, With<HudRoot>>) {
+    for e in &q {
+        commands.entity(e).despawn();
     }
 }

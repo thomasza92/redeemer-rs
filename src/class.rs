@@ -83,7 +83,6 @@ impl Plugin for ClassPlugin {
 }
 
 fn load_class_from_json(mut commands: Commands, cfg: Res<ClassPluginConfig>) {
-    // Read & parse the JSON file once at startup.
     let path = &cfg.path;
     let json = std::fs::read_to_string(path).unwrap_or_else(|e| {
         panic!("Failed to read class JSON at {path}: {e}");
