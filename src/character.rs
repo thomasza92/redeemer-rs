@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use crate::animations::{DEFAULT_FRAME_MS, to_anim_name};
 use crate::class::*;
+use crate::gameflow::GameplayRoot;
 
 // ───────── Input ─────────
 #[derive(Actionlike, Clone, Eq, Hash, PartialEq, Reflect, Debug)]
@@ -136,6 +137,7 @@ struct AttackDone;
 #[derive(Bundle)]
 struct PlayerBundle {
     player: Player,
+    gameflow: GameplayRoot,
     class: ClassAttachTarget,
     machine: StateMachine,
     idle: Idle,
@@ -395,6 +397,7 @@ pub fn spawn_main_character(
     let entity = commands
         .spawn(PlayerBundle {
             player: Player,
+            gameflow: GameplayRoot,
             class: ClassAttachTarget,
             machine,
             idle: Idle,

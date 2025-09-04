@@ -16,6 +16,9 @@ pub enum GameState {
 #[derive(Event, Default)]
 pub struct PlayerDied;
 
+#[derive(Resource, Clone, Copy, Default)]
+struct SettingsBackTarget(GameState);
+
 // Markers
 #[derive(Component)]
 pub struct GameplayRoot;
@@ -32,14 +35,12 @@ struct GameOverUI;
 #[derive(Component, Clone, Copy)]
 enum MainBtn {
     NewGame,
-    Continue,
     Settings,
     Quit,
 }
 #[derive(Component, Clone, Copy)]
 enum PauseBtn {
     Resume,
-    Restart,
     Settings,
     MainMenu,
 }
@@ -58,6 +59,7 @@ pub struct GameFlowPlugin;
 impl Plugin for GameFlowPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>()
+            .init_resource::<SettingsBackTarget>()
             .add_event::<PlayerDied>()
             // Menus
             .add_systems(OnEnter(GameState::MainMenu), spawn_main_menu)
@@ -94,8 +96,6 @@ impl Plugin for GameFlowPlugin {
             .add_systems(Update, to_game_over_on_death);
     }
 }
-
-/* ---------- UI helpers (Bevy 0.16 style) ---------- */
 
 fn menu_root(commands: &mut Commands) -> Entity {
     commands
@@ -190,12 +190,11 @@ fn spawn_main_menu(mut commands: Commands, assets: Res<AssetServer>) {
 
     let title = menu_title(&mut commands, font.clone(), "REDEEMER");
     let b_new  = spawn_button(&mut commands, &font, "New Game", MainBtn::NewGame);
-    let b_cont = spawn_button(&mut commands, &font, "Continue", MainBtn::Continue);
     let b_set  = spawn_button(&mut commands, &font, "Settings", MainBtn::Settings);
     let b_quit = spawn_button(&mut commands, &font, "Quit",     MainBtn::Quit);
 
     commands.entity(panel).add_child(title);
-    commands.entity(panel).add_children(&[b_new, b_cont, b_set, b_quit]);
+    commands.entity(panel).add_children(&[b_new, b_set, b_quit]);
 }
 
 fn spawn_settings_menu(mut commands: Commands, assets: Res<AssetServer>) {
@@ -225,12 +224,11 @@ fn spawn_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
 
     let title  = menu_title(&mut commands, font.clone(), "PAUSED");
     let b_res  = spawn_button(&mut commands, &font, "Resume",    PauseBtn::Resume);
-    let b_rst  = spawn_button(&mut commands, &font, "Restart",   PauseBtn::Restart);
     let b_set  = spawn_button(&mut commands, &font, "Settings",  PauseBtn::Settings);
     let b_menu = spawn_button(&mut commands, &font, "Main Menu", PauseBtn::MainMenu);
 
     commands.entity(panel).add_child(title);
-    commands.entity(panel).add_children(&[b_res, b_rst, b_set, b_menu]);
+    commands.entity(panel).add_children(&[b_res, b_set, b_menu]);
 }
 
 fn spawn_game_over(mut commands: Commands, assets: Res<AssetServer>) {
@@ -261,18 +259,18 @@ fn set_btn_color(bg: &mut BackgroundColor, interaction: Interaction) {
 fn main_menu_buttons(
     mut next: ResMut<NextState<GameState>>,
     mut exit: EventWriter<AppExit>,
-    mut q: Query<
-        (&Interaction, &mut BackgroundColor, &MainBtn),
-        (Changed<Interaction>, With<Button>),
-    >,
+    mut back_target: ResMut<SettingsBackTarget>,        // <— add
+    mut q: Query<(&Interaction, &mut BackgroundColor, &MainBtn), (Changed<Interaction>, With<Button>)>,
 ) {
     for (i, mut bg, btn) in &mut q {
         set_btn_color(&mut bg, *i);
         if *i == Interaction::Pressed {
             match btn {
                 MainBtn::NewGame  => next.set(GameState::InGame),
-                MainBtn::Continue => next.set(GameState::InGame),
-                MainBtn::Settings => next.set(GameState::Settings),
+                MainBtn::Settings => {
+                    back_target.0 = GameState::MainMenu;
+                    next.set(GameState::Settings);
+                }
                 MainBtn::Quit     => { let _ = exit.write(AppExit::Success); }
             }
         }
@@ -281,16 +279,14 @@ fn main_menu_buttons(
 
 fn settings_buttons(
     mut next: ResMut<NextState<GameState>>,
-    mut q: Query<
-        (&Interaction, &mut BackgroundColor, &SetBtn),
-        (Changed<Interaction>, With<Button>),
-    >,
+    back_target: Res<SettingsBackTarget>,
+    mut q: Query<(&Interaction, &mut BackgroundColor, &SetBtn), (Changed<Interaction>, With<Button>)>,
 ) {
     for (i, mut bg, btn) in &mut q {
         set_btn_color(&mut bg, *i);
         if *i == Interaction::Pressed {
             if matches!(btn, SetBtn::Back) {
-                next.set(GameState::MainMenu);
+                next.set(back_target.0);
             }
         }
     }
@@ -298,18 +294,18 @@ fn settings_buttons(
 
 fn pause_menu_buttons(
     mut next: ResMut<NextState<GameState>>,
-    mut q: Query<
-        (&Interaction, &mut BackgroundColor, &PauseBtn),
-        (Changed<Interaction>, With<Button>),
-    >,
+    mut back_target: ResMut<SettingsBackTarget>,
+    mut q: Query<(&Interaction, &mut BackgroundColor, &PauseBtn), (Changed<Interaction>, With<Button>)>,
 ) {
     for (i, mut bg, btn) in &mut q {
         set_btn_color(&mut bg, *i);
         if *i == Interaction::Pressed {
             match btn {
                 PauseBtn::Resume   => next.set(GameState::InGame),
-                PauseBtn::Restart  => next.set(GameState::InGame),
-                PauseBtn::Settings => next.set(GameState::Settings),
+                PauseBtn::Settings => {
+                    back_target.0 = GameState::Paused;
+                    next.set(GameState::Settings);
+                }
                 PauseBtn::MainMenu => next.set(GameState::MainMenu),
             }
         }

@@ -2,6 +2,7 @@ use crate::prelude::*;
 use bevy::ui::GlobalZIndex;
 use crate::class::{PlayerClass, ClassAttachTarget};
 use crate::gameflow::GameState;
+use crate::gameflow::GameplayRoot;
 
 pub struct HudPlugin;
 
@@ -75,7 +76,7 @@ fn sync_player_stats_from_class(
     }
 }
 
-fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn spawn_hud(mut commands: Commands, assets: Res<AssetServer>) {
     let root = commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -85,11 +86,12 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
             row_gap: Val::Px(6.0),
             ..default()
         },
+        GameplayRoot,
         GlobalZIndex(1),
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)), // transparent
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
     )).id();
 
-    let font = asset_server.load("fonts/GohuFont14NerdFontMono-Regular.ttf");
+    let font = assets.load("fonts/GohuFont14NerdFontMono-Regular.ttf");
 
     let hp_row = commands.spawn((
         Node {
@@ -168,7 +170,7 @@ fn spawn_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
     let sp_container = commands.spawn((
         Node {
             width: Val::Px(220.0),
-            height: Val::Px(12.0),
+            height: Val::Px(18.0),
             border: UiRect::all(Val::Px(2.0)),
             ..default()
         },

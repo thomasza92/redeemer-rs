@@ -4,6 +4,7 @@ use bevy::ecs::{
         system::{SystemParam, lifetimeless::Read}
     };
 use crate::character::Player;
+use crate::gameflow::GameplayRoot;
 
 pub fn spawn_map(
     mut commands: Commands,
@@ -12,6 +13,7 @@ pub fn spawn_map(
     commands
     .spawn((
         TiledMap(asset_server.load("map2.tmx")),
+        GameplayRoot,
         Transform::from_xyz(0.0, -100.0, 0.0),
     ))
     .observe(|ev: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
