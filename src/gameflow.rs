@@ -19,17 +19,27 @@ pub struct PlayerDied;
 #[derive(Resource, Clone, Copy, Default)]
 struct SettingsBackTarget(GameState);
 
-// Markers
 #[derive(Component)]
 pub struct GameplayRoot;
+
 #[derive(Component)]
 struct MainMenuUI;
+
+#[derive(Component)]
+struct MainMenuBg;
+
 #[derive(Component)]
 struct PauseMenuUI;
+
 #[derive(Component)]
 struct SettingsUI;
+
 #[derive(Component)]
 struct GameOverUI;
+
+#[derive(Component)]
+#[allow(dead_code)]
+struct MenuBgLoop(Handle<vleue_kinetoscope::AnimatedImage>);
 
 // Button tags
 #[derive(Component, Clone, Copy)]
@@ -63,12 +73,21 @@ impl Plugin for GameFlowPlugin {
             .add_event::<PlayerDied>()
             // Menus
             .add_systems(OnEnter(GameState::MainMenu), spawn_main_menu)
-            .add_systems(OnExit(GameState::MainMenu), despawn_ui::<MainMenuUI>)
             .add_systems(
                 Update,
                 main_menu_buttons.run_if(in_state(GameState::MainMenu)),
             )
+            .add_systems(
+                Update,
+                size_menu_bg_to_window.run_if(in_state(GameState::MainMenu))
+            )
+            .add_systems(Update, size_menu_bg_to_window.run_if(in_state(GameState::Settings)))
+            .add_systems(
+                OnExit(GameState::MainMenu),
+                despawn_ui::<MainMenuUI>
+            )
             .add_systems(OnEnter(GameState::Settings), spawn_settings_menu)
+            .add_systems(OnEnter(GameState::InGame), despawn_menu_bg)
             .add_systems(OnExit(GameState::Settings), despawn_ui::<SettingsUI>)
             .add_systems(
                 Update,
@@ -108,7 +127,7 @@ fn menu_root(commands: &mut Commands) -> Entity {
                 ..default()
             },
             GlobalZIndex(1000),
-            BackgroundColor(Color::srgba(0.02, 0.02, 0.04, 0.92)),
+            BackgroundColor(Color::NONE),
         ))
         .id()
 }
@@ -122,9 +141,10 @@ fn menu_panel(commands: &mut Commands) -> Entity {
                 row_gap: Val::Px(12.0),
                 padding: UiRect::all(Val::Px(24.0)),
                 align_items: AlignItems::Stretch,
+                margin: UiRect { top: Val::Px(280.0), ..default() },
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.08, 0.08, 0.12, 0.98)),
+            BackgroundColor(Color::srgb(0.08, 0.08, 0.12)),
         ))
         .id()
 }
@@ -158,7 +178,7 @@ fn spawn_button<A: Component>(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::srgba(0.15, 0.15, 0.25, 1.0)),
+            BackgroundColor(Color::srgb(0.15, 0.15, 0.25)),
             action,
         ))
         .id();
@@ -179,21 +199,32 @@ fn spawn_button<A: Component>(
     btn
 }
 
-fn spawn_main_menu(mut commands: Commands, assets: Res<AssetServer>) {
-    let font = assets.load("fonts/GohuFont14NerdFontMono-Regular.ttf");
+fn spawn_main_menu(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    q_bg: Query<(), With<MainMenuBg>>,
+) {
+    if q_bg.is_empty() {
+        let stream_handle: Handle<vleue_kinetoscope::StreamingAnimatedImage>
+            = assets.load("ui/menu_bg.webp");
+        commands.spawn((
+            MainMenuBg,
+            vleue_kinetoscope::StreamingAnimatedImageController::play(stream_handle),
+            Transform::from_xyz(0.0, 0.0, -5.0),
+        ));
+    }
 
+    let font = assets.load("fonts/GohuFont14NerdFontMono-Regular.ttf");
     let root = menu_root(&mut commands);
     let panel = menu_panel(&mut commands);
 
     commands.entity(root).insert(MainMenuUI);
     commands.entity(root).add_child(panel);
 
-    let title = menu_title(&mut commands, font.clone(), "REDEEMER");
     let b_new  = spawn_button(&mut commands, &font, "New Game", MainBtn::NewGame);
     let b_set  = spawn_button(&mut commands, &font, "Settings", MainBtn::Settings);
     let b_quit = spawn_button(&mut commands, &font, "Quit",     MainBtn::Quit);
 
-    commands.entity(panel).add_child(title);
     commands.entity(panel).add_children(&[b_new, b_set, b_quit]);
 }
 
@@ -256,10 +287,21 @@ fn set_btn_color(bg: &mut BackgroundColor, interaction: Interaction) {
     };
 }
 
+fn size_menu_bg_to_window(
+    qwin: Query<&Window>,
+    mut q: Query<&mut Sprite, With<MainMenuBg>>,
+) {
+    let Ok(win) = qwin.single() else { return; };
+    let size = Vec2::new(win.width(), win.height());
+    for mut sprite in &mut q {
+        sprite.custom_size = Some(size);
+    }
+}
+
 fn main_menu_buttons(
     mut next: ResMut<NextState<GameState>>,
     mut exit: EventWriter<AppExit>,
-    mut back_target: ResMut<SettingsBackTarget>,        // <— add
+    mut back_target: ResMut<SettingsBackTarget>,
     mut q: Query<(&Interaction, &mut BackgroundColor, &MainBtn), (Changed<Interaction>, With<Button>)>,
 ) {
     for (i, mut bg, btn) in &mut q {
@@ -359,6 +401,12 @@ fn despawn_ui<T: Component>(mut commands: Commands, q: Query<Entity, With<T>>) {
 }
 
 pub fn despawn_gameplay(mut commands: Commands, q: Query<Entity, With<GameplayRoot>>) {
+    for e in &q {
+        commands.entity(e).despawn();
+    }
+}
+
+fn despawn_menu_bg(mut commands: Commands, q: Query<Entity, With<MainMenuBg>>) {
     for e in &q {
         commands.entity(e).despawn();
     }

@@ -1,6 +1,8 @@
 use crate::prelude::*;
 use crate::character::Player;
 use crate::gameflow::GameplayRoot;
+use bevy_light_2d::light::SpotLight2d;
+use bevy_egui::PrimaryEguiContext;
 
 #[derive(Component)]
 pub struct MainCamera;
@@ -18,6 +20,8 @@ pub fn spawn_follow_camera(
         commands.spawn((
             MainCamera,
             Camera2d,
+            TiledParallaxCamera,
+            PrimaryEguiContext,
             Projection::Orthographic(projection),
             Light2d {
                 ambient_light: AmbientLight2d { brightness: 0.1, ..default() },
@@ -29,13 +33,33 @@ pub fn spawn_follow_camera(
 pub fn spawn_streetlights(mut commands: Commands) {
     commands.spawn((
         GameplayRoot,
-        PointLight2d { color: Color::WHITE, radius: 100.0, intensity: 2.0, falloff: 0.5, cast_shadows: true, ..default() },
-        Transform::from_xyz(116., 12., 1.),
+        SpotLight2d {
+        color: Srgba::hex("#FABD8A").unwrap().into(),
+        intensity: 2.5,
+        radius: 160.0,
+        falloff: 2.5,
+        direction: -90.,
+        inner_angle: -180.,
+        outer_angle: -90.,
+        cast_shadows: true,
+        ..default()
+    },
+        Transform::from_xyz(117., 332., 1.),
     ));
     commands.spawn((
         GameplayRoot,
-        PointLight2d { color: Color::WHITE, radius: 100.0, intensity: 2.0, falloff: 0.5, cast_shadows: true, ..default() },
-        Transform::from_xyz(693., 12., 1.),
+        SpotLight2d {
+        color: Srgba::hex("#FABD8A").unwrap().into(),
+        intensity: 2.5,
+        radius: 160.0,
+        falloff: 2.5,
+        direction: -90.,
+        inner_angle: -180.,
+        outer_angle: -90.,
+        cast_shadows: true,
+        ..default()
+    },
+        Transform::from_xyz(693., 332., 1.),
     ));
 }
 
