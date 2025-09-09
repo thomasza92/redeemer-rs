@@ -47,7 +47,7 @@ fn load_player_spritesheet(
 ) {
     let json_path = "assets/PlayerSheet2.json";
     let json_text = fs::read_to_string(json_path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {}", json_path, e));
+        .unwrap_or_else(|e| panic!("Failed to read {json_path}: {e}"));
 
     let manifest: SheetManifest =
         serde_json::from_str(&json_text).expect("PlayerSheet2.json malformed");
@@ -92,7 +92,7 @@ pub fn to_anim_name(raw: &str) -> String {
         prefix.push_str(&parts.join("_"));
     }
 
-    format!("{}:{}", prefix, last)
+    format!("{prefix}:{last}")
 }
 fn register_player_animations(
     mut library: ResMut<AnimationLibrary>,

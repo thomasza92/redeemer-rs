@@ -738,18 +738,18 @@ fn drive_animation(
     ) in &mut q
     {
         // Attack takes precedence; pick specific attack clip per state
-        let want = if let Some(_) = idle_a {
+        let want = if idle_a.is_some() {
             Some(clips.attack_idle)
-        } else if let Some(_) = walking_a {
+        } else if walking_a.is_some() {
             clips.attack_walk.or(Some(clips.attack_idle))
-        } else if let Some(_) = running_a {
+        } else if running_a.is_some() {
             clips
                 .attack_run
                 .or(clips.attack_walk)
                 .or(Some(clips.attack_idle))
-        } else if let Some(_) = jumping_a {
+        } else if jumping_a.is_some() {
             clips.attack_jump.or(Some(clips.attack_idle))
-        } else if let Some(_) = falling_a {
+        } else if falling_a.is_some() {
             clips
                 .attack_fall
                 .or(clips.attack_jump)

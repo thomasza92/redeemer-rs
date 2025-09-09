@@ -336,11 +336,10 @@ fn settings_buttons(
 ) {
     for (i, mut bg, btn) in &mut q {
         set_btn_color(&mut bg, *i);
-        if *i == Interaction::Pressed {
-            if matches!(btn, SetBtn::Back) {
+        if *i == Interaction::Pressed
+            && matches!(btn, SetBtn::Back) {
                 next.set(back_target.0);
             }
-        }
     }
 }
 
