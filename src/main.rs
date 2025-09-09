@@ -2,8 +2,10 @@ mod animations;
 mod camera;
 mod character;
 mod class;
+mod dither_post;
 mod enemy;
 mod gameflow;
+mod halation_post;
 mod hud;
 mod level;
 mod prelude;
@@ -16,16 +18,18 @@ use crate::camera::{
 };
 use crate::character::{Action, PlayerPlugin, spawn_main_character};
 use crate::class::ClassPlugin;
+use crate::dither_post::DitherPostProcessPlugin;
 use crate::enemy::{EnemyPlugin, spawn_enemy};
 use crate::gameflow::{GameFlowPlugin, GameState, despawn_gameplay};
+use crate::halation_post::HalationPostProcessPlugin;
 use crate::hud::HudPlugin;
 use crate::level::{PlatformerCollisionHooks, pass_through_one_way_platform, spawn_map};
 use crate::prelude::*;
+use bevy_egui::EguiPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_window::PresentMode;
 use bevy_window::WindowMode;
 use vleue_kinetoscope::AnimatedImagePlugin;
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
-// use bevy_egui::EguiPlugin;
 
 #[derive(Resource)]
 struct WorldLoaded;
@@ -73,8 +77,8 @@ fn main() {
             Light2dPlugin,
             //            PhysicsDebugPlugin::default(),
         ))
-        //        .add_plugins(EguiPlugin::default())
-        //        .add_plugins(WorldInspectorPlugin::new())
+        .add_plugins(EguiPlugin::default())
+        .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(SpritesheetAnimationPlugin)
         .add_plugins(PlayerAnimationsPlugin)
         .add_plugins(PlayerPlugin)
@@ -85,6 +89,8 @@ fn main() {
         .add_plugins(GameFlowPlugin)
         .add_plugins(TiledPlugin::default())
         .add_plugins(TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default())
+        .add_plugins(DitherPostProcessPlugin)
+        .add_plugins(HalationPostProcessPlugin)
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
         .insert_resource(Gravity(Vector::NEG_Y * 1000.0))
         .add_systems(Startup, spawn_menu_camera)
