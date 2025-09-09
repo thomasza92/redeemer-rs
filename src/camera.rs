@@ -1,7 +1,5 @@
 use crate::prelude::*;
 use crate::character::Player;
-use crate::gameflow::GameplayRoot;
-use bevy_light_2d::light::SpotLight2d;
 use bevy_egui::PrimaryEguiContext;
 
 #[derive(Component)]
@@ -16,7 +14,7 @@ pub fn spawn_follow_camera(
 ) {
     if existing.is_empty() {
         let mut projection = OrthographicProjection::default_2d();
-        projection.scale = 0.25;
+        projection.scale = 0.33;
         commands.spawn((
             MainCamera,
             Camera2d,
@@ -29,40 +27,6 @@ pub fn spawn_follow_camera(
         ));
     }
 }
-
-pub fn spawn_streetlights(mut commands: Commands) {
-    commands.spawn((
-        GameplayRoot,
-        SpotLight2d {
-        color: Srgba::hex("#FABD8A").unwrap().into(),
-        intensity: 2.5,
-        radius: 160.0,
-        falloff: 2.5,
-        direction: -90.,
-        inner_angle: -180.,
-        outer_angle: -90.,
-        cast_shadows: true,
-        ..default()
-    },
-        Transform::from_xyz(117., 332., 1.),
-    ));
-    commands.spawn((
-        GameplayRoot,
-        SpotLight2d {
-        color: Srgba::hex("#FABD8A").unwrap().into(),
-        intensity: 2.5,
-        radius: 160.0,
-        falloff: 2.5,
-        direction: -90.,
-        inner_angle: -180.,
-        outer_angle: -90.,
-        cast_shadows: true,
-        ..default()
-    },
-        Transform::from_xyz(693., 332., 1.),
-    ));
-}
-
 pub fn camera_follow(
     time: Res<Time>,
     player_q: Query<&GlobalTransform, With<Player>>,

@@ -5,23 +5,47 @@ use bevy::ecs::{
     };
 use crate::character::Player;
 use crate::gameflow::GameplayRoot;
+use bevy_light_2d::light::SpotLight2d;
 
-pub fn spawn_map(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+pub fn spawn_map(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
-    .spawn((
-        TiledMap(asset_server.load("map2.tmx")),
-        GameplayRoot,
-        Transform::from_xyz(0.0, -100.0, 0.0),
-    ))
-    .observe(|ev: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
-        commands.entity(ev.event().origin).insert((
-            RigidBody::Static,
-            Friction::ZERO,
-        ));
-    });
+        .spawn((
+            TiledMap(asset_server.load("map2.tmx")),
+            GameplayRoot,
+            TilemapAnchor::CenterLeft,
+        ))
+        .observe(|ev: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
+            commands.entity(ev.event().origin).insert((
+                RigidBody::Static,
+                Friction::ZERO,
+            ));
+        })
+        .observe(
+            |ev: Trigger<TiledEvent<ObjectCreated>>,
+             mut commands: Commands,
+             maps: Res<Assets<TiledMapAsset>>| {
+                if let Some(obj) = ev.event().get_object(&maps) {
+                    let is_streetlight =
+                        obj.user_type.eq_ignore_ascii_case("StreetLight")
+                        || obj.name.eq_ignore_ascii_case("StreetLight");
+
+                    if is_streetlight {
+                        commands.entity(ev.event().origin).insert(SpotLight2d {
+                            color: Srgba::hex("#FABD8A").unwrap().into(),
+                            intensity: 2.5,
+                            radius: 160.0,
+                            falloff: 2.5,
+                            direction: -90.0,
+                            inner_angle: -180.0,
+                            outer_angle: -90.0,
+                            source_width: 8.0,
+                            cast_shadows: true,
+                            ..default()
+                        });
+                    }
+                }
+            },
+        );
 }
 
 

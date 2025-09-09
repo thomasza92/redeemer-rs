@@ -8,9 +8,9 @@ bevy = { version = "0.16.1", features = ["dynamic_linking", "wayland", "file_wat
 log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
 avian2d = "0.3.1"
 rand = "0.9.2"
-bevy_ecs_tiled = { git = "https://github.com/adrien-bon/bevy_ecs_tiled", features = ["avian"] }
+bevy_ecs_tiled = { git = "https://github.com/thomasza92/bevy_ecs_tiled", features = ["avian"] }
 leafwing-input-manager = "0.17.1"
-bevy_light_2d = { path = "/Users/thomasza/Desktop/redeemer-rs/bevy_light_2d" }
+bevy_light_2d = { git = "https://github.com/thomasza92/bevy_light_2d" }
 seldom_state = { version = "0.14.0", features = ["leafwing_input"] }
 bevy_spritesheet_animation = { version = "3.1.0", default-features = false }
 bevy-inspector-egui = "0.33.1"
@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bevy_window = "0.16.1"
 vleue_kinetoscope = { version = "0.4.1", default-features = false, features = ["streaming", "webp"] }
+big-brain = { git = "https://github.com/zkat/big-brain", branch = "main" }
 
 [profile.dev]
 opt-level = 1

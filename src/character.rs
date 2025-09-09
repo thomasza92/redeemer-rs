@@ -1,15 +1,27 @@
 use crate::prelude::*;
+use crate::class::*;
+use crate::animations::{DEFAULT_FRAME_MS, to_anim_name};
+use crate::gameflow::GameplayRoot;
+use crate::level::PassThroughOneWayPlatform;
+use crate::animations::PlayerSpritesheet;
+use crate::raycasts::{MeleeRaycastSpec, MeleeAttackActive, RaycastMeleePlugin, MeleeRaycastHit};
+use avian2d::spatial_query::SpatialQueryFilter;
+use avian2d::collision::collider::{CollisionLayers, LayerMask, PhysicsLayer};
 use bevy::sprite::Anchor;
 use seldom_state::trigger::just_pressed;
 use bevy::log::info;
-use crate::level::PassThroughOneWayPlatform;
-use crate::animations::PlayerSpritesheet;
 use std::collections::HashMap;
 use serde::Deserialize;
-use crate::animations::{DEFAULT_FRAME_MS, to_anim_name};
-use crate::class::*;
-use crate::gameflow::GameplayRoot;
 
+
+// ───────── Raycast Layers ─────────
+#[derive(PhysicsLayer, Default)]
+pub enum GameLayer {
+    #[default]
+    Default,
+    Player,
+    Enemy,
+}
 // ───────── Input ─────────
 #[derive(Actionlike, Clone, Eq, Hash, PartialEq, Reflect, Debug)]
 pub enum Action {
@@ -394,6 +406,8 @@ pub fn spawn_main_character(
         .trans::<FallingAttack, _>(landed_walking,  WalkingAttack)
         .trans::<FallingAttack, _>(landed,           IdleAttack);
 
+    let enemy_mask = SpatialQueryFilter::from_mask(LayerMask::from(GameLayer::Enemy));
+
     let entity = commands
         .spawn(PlayerBundle {
             player: Player,
@@ -416,11 +430,24 @@ pub fn spawn_main_character(
             one_way: PassThroughOneWayPlatform::Never,
             input_map,
             action_state: ActionState::default(),
-            transform: Transform::from_xyz(0., 300., -1.),
+            transform: Transform::from_xyz(0., 0., -1.),
             global_transform: GlobalTransform::default(),
+        })
+        .insert(MeleeRaycastSpec {
+        offset: Vec2::new(18.0, 8.0),
+        length: 46.0,
+        max_hits: 1,
+        damage: 1,
+        filter: enemy_mask,
+        solid: false,
+        once_per_swing: true,
         })
         .insert(attack_durs)
         .insert(Name::new("Player"))
+        .insert(CollisionLayers::new(
+        LayerMask::from(GameLayer::Player),
+        LayerMask::from(GameLayer::Enemy) | LayerMask::from(GameLayer::Default),
+        ))
         .id();
     commands.entity(entity).insert(AttackCooldown(Timer::from_seconds(0.0, TimerMode::Once)));
 }
@@ -661,12 +688,47 @@ fn debug_log_player_state(
     }
 }
 
+pub fn bridge_attack_states_to_melee_tag(
+    mut commands: Commands,
+    q: Query<
+        (Entity,
+         Option<&IdleAttack>, Option<&WalkingAttack>, Option<&RunningAttack>,
+         Option<&JumpingAttack>, Option<&FallingAttack>,
+         Option<&MeleeAttackActive>),
+        With<Player>
+    >,
+    ) {
+        for (e, idle_a, walk_a, run_a, jump_a, fall_a, melee_tag) in &q {
+            let attacking = idle_a.is_some() || walk_a.is_some() || run_a.is_some()
+                || jump_a.is_some() || fall_a.is_some();
+            match (attacking, melee_tag.is_some()) {
+                (true,  false) => { commands.entity(e).insert(MeleeAttackActive); }
+                (false, true)  => { commands.entity(e).remove::<MeleeAttackActive>(); }
+                _ => {}
+            }
+        }
+    }
+fn log_melee_hits(mut ev: EventReader<MeleeRaycastHit>) {
+    for hit in ev.read() {
+        info!(
+            "Slash by {:?} hit {:?} at d={:.1} normal=({:.2},{:.2}) dmg={}",
+            hit.attacker,
+            hit.target,
+            hit.distance,
+            hit.normal.x,
+            hit.normal.y,
+            hit.damage
+        );
+    }
+    }
+
 // ───────── Plugin ─────────
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app
+            .add_plugins(RaycastMeleePlugin)
             .add_systems(Update, (
                 drive_motion_set_velocity,
                 face_by_input,
@@ -675,6 +737,8 @@ impl Plugin for PlayerPlugin {
                 on_enter_attack_start_timer,
                 finish_attack_when_timer_done,
                 clear_attack_done,
+                bridge_attack_states_to_melee_tag,
+                log_melee_hits,
             ))
             .add_systems(PostUpdate, (
                 on_added_jumping_set_impulse,
