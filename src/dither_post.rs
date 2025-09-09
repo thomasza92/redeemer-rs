@@ -23,15 +23,11 @@ use bevy::{
     },
 };
 
-/// Path to the WGSL file below
 const SHADER_ASSET_PATH: &str = "shaders/dither_post.wgsl";
 
-/// Tweakable settings you add to your Camera2d
 #[derive(Component, Clone, Copy, Default, ExtractComponent, ShaderType)]
 pub struct DitherSettings {
-    /// Number of output levels per channel (min 2). Use 2 for 1-bit, 4 for GB-ish, etc.
     pub levels: u32,
-    /// 1 = grayscale dither, 0 = color dither
     pub monochrome: u32,
 }
 
@@ -49,9 +45,7 @@ impl Plugin for DitherPostProcessPlugin {
         };
 
         render_app
-            // run on Core2d graph (2D cameras)
             .add_render_graph_node::<ViewNodeRunner<DitherNode>>(Core2d, DitherLabel)
-            // place between tonemapping and end of post-processing for 2D
             .add_render_graph_edges(
                 Core2d,
                 (
@@ -94,7 +88,15 @@ impl FromWorld for DitherPipeline {
             ),
         );
 
-        let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+        let sampler = render_device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: FilterMode::Nearest,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            ..Default::default()
+        });
 
         let shader = world.load_asset(SHADER_ASSET_PATH);
         let pipeline_id =

@@ -4,6 +4,7 @@ mod character;
 mod class;
 mod dither_post;
 mod enemy;
+mod filmic_post;
 mod gameflow;
 mod halation_post;
 mod hud;
@@ -20,6 +21,10 @@ use crate::character::{Action, PlayerPlugin, spawn_main_character};
 use crate::class::ClassPlugin;
 use crate::dither_post::DitherPostProcessPlugin;
 use crate::enemy::{EnemyPlugin, spawn_enemy};
+use crate::filmic_post::FilmicControls;
+use crate::filmic_post::FilmicPostProcessPlugin;
+use crate::filmic_post::FilmicSettings;
+use crate::filmic_post::sync_filmic_controls;
 use crate::gameflow::{GameFlowPlugin, GameState, despawn_gameplay};
 use crate::halation_post::HalationPostProcessPlugin;
 use crate::hud::HudPlugin;
@@ -91,7 +96,10 @@ fn main() {
         .add_plugins(TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default())
         .add_plugins(DitherPostProcessPlugin)
         .add_plugins(HalationPostProcessPlugin)
+        .add_plugins(FilmicPostProcessPlugin)
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
+        .register_type::<FilmicSettings>()
+        .register_type::<FilmicControls>()
         .insert_resource(Gravity(Vector::NEG_Y * 1000.0))
         .add_systems(Startup, spawn_menu_camera)
         .add_systems(
@@ -124,7 +132,12 @@ fn main() {
         )
         .add_systems(
             FixedUpdate,
-            (pass_through_one_way_platform, camera_follow).run_if(in_state(GameState::InGame)),
+            (
+                pass_through_one_way_platform,
+                camera_follow,
+                sync_filmic_controls,
+            )
+                .run_if(in_state(GameState::InGame)),
         )
         .run();
 }

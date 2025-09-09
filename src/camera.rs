@@ -1,5 +1,7 @@
+use crate::FilmicControls;
 use crate::character::Player;
 use crate::dither_post::DitherSettings;
+use crate::filmic_post::FilmicSettings;
 use crate::halation_post::HalationSettings;
 use crate::prelude::*;
 use bevy_egui::PrimaryEguiContext;
@@ -18,14 +20,17 @@ pub fn spawn_follow_camera(mut commands: Commands, existing: Query<(), With<Main
             MainCamera,
             Camera2d,
             DitherSettings {
-                levels: 6,
+                levels: 5,
                 monochrome: 0,
             },
             HalationSettings {
-                p0: Vec4::new(0.6, 3.0, 0.7, 0.08), // strength, radius(px), threshold, knee
-                p1: Vec4::new(1.0, 0.35, 0.25, 1.25), // tint, red_boost
-                p2: Vec4::new(1.2, 0.0, 0.0, 0.0),  // shadow bias
+                p0: Vec4::new(0.6, 3.0, 0.7, 0.08),
+                p1: Vec4::new(1.0, 0.35, 0.25, 1.25),
+                p2: Vec4::new(1.2, 0.0, 0.0, 0.0),
             },
+            Msaa::Off,
+            FilmicSettings::default(),
+            FilmicControls::default(),
             TiledParallaxCamera,
             PrimaryEguiContext,
             Projection::Orthographic(projection),
@@ -38,6 +43,7 @@ pub fn spawn_follow_camera(mut commands: Commands, existing: Query<(), With<Main
         ));
     }
 }
+
 pub fn camera_follow(
     time: Res<Time>,
     player_q: Query<&GlobalTransform, With<Player>>,
