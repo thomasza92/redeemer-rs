@@ -1,11 +1,11 @@
 // enemy.rs
+use avian2d::collision::collider::{CollisionLayers, LayerMask};
+use avian2d::prelude::*;
+use avian2d::spatial_query::SpatialQueryFilter;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use bevy_spritesheet_animation::prelude::*;
 use big_brain::prelude::*;
-use avian2d::prelude::*;
-use avian2d::collision::collider::{CollisionLayers, LayerMask};
-use avian2d::spatial_query::SpatialQueryFilter;
 
 use crate::character::{GameLayer, Player};
 use crate::raycasts::{MeleeAttackActive, MeleeRaycastSpec};
@@ -18,14 +18,14 @@ struct EnemyCurrentAnim(AnimationId);
 pub struct EnemyAnimClips {
     pub idle: AnimationId,
     pub walk: Option<AnimationId>,
-    pub run:  Option<AnimationId>,
+    pub run: Option<AnimationId>,
     pub jump: Option<AnimationId>,
     pub fall: Option<AnimationId>,
-    pub attack_idle:  AnimationId,
-    pub attack_walk:  Option<AnimationId>,
-    pub attack_run:   Option<AnimationId>,
-    pub attack_jump:  Option<AnimationId>,
-    pub attack_fall:  Option<AnimationId>,
+    pub attack_idle: AnimationId,
+    pub attack_walk: Option<AnimationId>,
+    pub attack_run: Option<AnimationId>,
+    pub attack_jump: Option<AnimationId>,
+    pub attack_fall: Option<AnimationId>,
 }
 
 // ====== Tags & data ======
@@ -33,7 +33,10 @@ pub struct EnemyAnimClips {
 pub struct Enemy;
 
 #[derive(Component, Clone, Copy)]
-pub struct PatrolBounds { pub left: f32, pub right: f32 }
+pub struct PatrolBounds {
+    pub left: f32,
+    pub right: f32,
+}
 
 #[derive(Component, Deref, DerefMut)]
 pub struct PatrolDir(pub f32);
@@ -46,12 +49,14 @@ pub struct EnemySenses {
     pub dist: f32,
 }
 
-#[derive(Component)] struct EnemyAttackTimer(Timer);
-#[derive(Component)] struct EnemyAttackCooldown(Timer);
+#[derive(Component)]
+struct EnemyAttackTimer(Timer);
+#[derive(Component)]
+struct EnemyAttackCooldown(Timer);
 
 // ====== Tuning ======
 const WALK: f32 = 50.0;
-const RUN:  f32 = 200.0;
+const RUN: f32 = 200.0;
 const ACCEL: f32 = 3000.0;
 const AGGRO: f32 = 260.0;
 const RANGE: f32 = 46.0;
@@ -125,8 +130,8 @@ pub fn spawn_enemy(cmd: &mut Commands, pos: Vec2, left: f32, right: f32) -> Enti
         Thinker::build()
             .picker(FirstToScore::new(0.5))
             .when(AttackInRange, Attack) // in range -> Attack
-            .when(HasTarget, Chase)      // aggro only -> Chase
-            .otherwise(Patrol),          // no target -> Patrol
+            .when(HasTarget, Chase) // aggro only -> Chase
+            .otherwise(Patrol), // no target -> Patrol
     )
     .id()
 }
@@ -165,7 +170,12 @@ fn attack_in_range_scorer(
             score.set(1.0);
             continue;
         }
-        let on_cd = cd_q.get(*actor).ok().flatten().map(|c| !c.0.finished()).unwrap_or(false);
+        let on_cd = cd_q
+            .get(*actor)
+            .ok()
+            .flatten()
+            .map(|c| !c.0.finished())
+            .unwrap_or(false);
         if on_cd {
             score.set(0.0);
             continue;
@@ -188,7 +198,12 @@ pub struct Patrol;
 fn patrol_action(
     time: Res<Time>,
     mut q: Query<(&Actor, &mut ActionState), With<Patrol>>,
-    mut movers: Query<(&mut LinearVelocity, &GlobalTransform, &mut PatrolDir, &PatrolBounds)>,
+    mut movers: Query<(
+        &mut LinearVelocity,
+        &GlobalTransform,
+        &mut PatrolDir,
+        &PatrolBounds,
+    )>,
 ) {
     for (Actor(actor), mut state) in q.iter_mut() {
         match *state {
@@ -198,8 +213,12 @@ fn patrol_action(
             ActionState::Executing => {
                 if let Ok((mut vel, gt, mut dir, bounds)) = movers.get_mut(*actor) {
                     let x = gt.translation().x;
-                    if x <= bounds.left { dir.0 = 1.0; }
-                    if x >= bounds.right { dir.0 = -1.0; }
+                    if x <= bounds.left {
+                        dir.0 = 1.0;
+                    }
+                    if x >= bounds.right {
+                        dir.0 = -1.0;
+                    }
 
                     let target_vx = dir.0 * WALK;
                     let accel = ACCEL * time.delta_secs();
@@ -238,7 +257,11 @@ fn chase_action(
                         let dir = dx.signum();
 
                         // Slow/stop just inside attack band so Attack scorer can take over
-                        let desired = if s.dist <= RANGE + 8.0 { 0.0 } else { dir * RUN };
+                        let desired = if s.dist <= RANGE + 8.0 {
+                            0.0
+                        } else {
+                            dir * RUN
+                        };
                         let accel = ACCEL * time.delta_secs();
                         let delta = (desired - vel.x).clamp(-accel, accel);
                         vel.x += delta;
@@ -265,25 +288,33 @@ pub struct Attack;
 fn attack_action(
     mut cmd: Commands,
     mut q: Query<(&Actor, &mut ActionState), With<Attack>>,
-    mut timers: Query<(Option<&mut EnemyAttackTimer>, Option<&mut EnemyAttackCooldown>)>,
+    mut timers: Query<(
+        Option<&mut EnemyAttackTimer>,
+        Option<&mut EnemyAttackCooldown>,
+    )>,
     mut vels: Query<&mut LinearVelocity>,
 ) {
     for (Actor(actor), mut state) in q.iter_mut() {
         match *state {
             ActionState::Init | ActionState::Requested => {
                 // Do not start if on cooldown or already swinging
-                let (swinging, on_cd) = if let Ok((maybe_timer, maybe_cd)) = timers.get_mut(*actor) {
+                let (swinging, on_cd) = if let Ok((maybe_timer, maybe_cd)) = timers.get_mut(*actor)
+                {
                     let swinging = maybe_timer.is_some();
                     let on_cd = maybe_cd.as_ref().map(|c| !c.0.finished()).unwrap_or(false);
                     (swinging, on_cd)
-                } else { (false, false) };
+                } else {
+                    (false, false)
+                };
 
                 if !on_cd && !swinging {
                     cmd.entity(*actor).insert((
                         MeleeAttackActive,
                         EnemyAttackTimer(Timer::from_seconds(SWING, TimerMode::Once)),
                     ));
-                    if let Ok(mut v) = vels.get_mut(*actor) { v.x = 0.0; }
+                    if let Ok(mut v) = vels.get_mut(*actor) {
+                        v.x = 0.0;
+                    }
                     *state = ActionState::Executing;
                 } else {
                     *state = ActionState::Failure;
@@ -292,16 +323,24 @@ fn attack_action(
 
             ActionState::Executing => {
                 // Hold still while the swing timer runs
-                if let Ok(mut v) = vels.get_mut(*actor) { v.x = 0.0; }
+                if let Ok(mut v) = vels.get_mut(*actor) {
+                    v.x = 0.0;
+                }
 
                 if let Ok((maybe_timer, _)) = timers.get_mut(*actor) {
-                    let done = maybe_timer.as_ref().map(|t| t.0.finished()).unwrap_or(false);
+                    let done = maybe_timer
+                        .as_ref()
+                        .map(|t| t.0.finished())
+                        .unwrap_or(false);
                     if done {
                         // Swing finished: end swing and NOW start cooldown.
                         cmd.entity(*actor)
                             .remove::<MeleeAttackActive>()
                             .remove::<EnemyAttackTimer>()
-                            .insert(EnemyAttackCooldown(Timer::from_seconds(COOLDOWN, TimerMode::Once)));
+                            .insert(EnemyAttackCooldown(Timer::from_seconds(
+                                COOLDOWN,
+                                TimerMode::Once,
+                            )));
                         *state = ActionState::Success;
                     }
                 } else {
@@ -337,13 +376,19 @@ fn sense_player(
         let p = pgt.translation().truncate();
         for (egt, mut s) in enemies.iter_mut() {
             let e = egt.translation().truncate();
-            s.target = if p.distance(e) <= AGGRO { Some(pe) } else { None };
+            s.target = if p.distance(e) <= AGGRO {
+                Some(pe)
+            } else {
+                None
+            };
             s.target_pos = p;
             s.dx = p.x - e.x;
             s.dist = p.distance(e);
         }
     } else {
-        for (_egt, mut s) in enemies.iter_mut() { s.target = None; }
+        for (_egt, mut s) in enemies.iter_mut() {
+            s.target = None;
+        }
     }
 }
 
@@ -353,11 +398,15 @@ fn face_by_target_or_velocity(
     mut q: Query<(&mut Sprite, &LinearVelocity, &EnemySenses), With<Enemy>>,
 ) {
     for (mut sprite, vel, senses) in q.iter_mut() {
-        let dir = if senses.target.is_some() { senses.dx.signum() } else { vel.x.signum() };
+        let dir = if senses.target.is_some() {
+            senses.dx.signum()
+        } else {
+            vel.x.signum()
+        };
         if dir > 0.05 {
             sprite.flip_x = false; // facing right
         } else if dir < -0.05 {
-            sprite.flip_x = true;  // facing left
+            sprite.flip_x = true; // facing left
         }
     }
 }
@@ -376,45 +425,49 @@ fn on_enemy_added_attach_sprite_and_anims(
 
         let clips = EnemyAnimClips {
             idle: idle_id,
-            walk:  library.animation_with_name("player_combat:swordrun"),
-            run:   library.animation_with_name("player_combat:swordsprint"),
-            jump:  library.animation_with_name("player_combat:swordjumpmid"),
-            fall:  library.animation_with_name("player_combat:swordjumpfall"),
-            attack_idle: library.animation_with_name("player_combat:standingslash")
+            walk: library.animation_with_name("player_combat:swordrun"),
+            run: library.animation_with_name("player_combat:swordsprint"),
+            jump: library.animation_with_name("player_combat:swordjumpmid"),
+            fall: library.animation_with_name("player_combat:swordjumpfall"),
+            attack_idle: library
+                .animation_with_name("player_combat:standingslash")
                 .expect("missing animation: player_combat:standingslash"),
             attack_walk: library.animation_with_name("player_combat:swordrunslash"),
-            attack_run:  library.animation_with_name("player_combat:swordsprintslash"),
+            attack_run: library.animation_with_name("player_combat:swordsprintslash"),
             attack_jump: library.animation_with_name("player_combat:airslashup"),
             attack_fall: library.animation_with_name("player_combat:airslashdown"),
         };
 
         let mut sprite = Sprite::from_atlas_image(
             sheet.image.clone(),
-            TextureAtlas { layout: sheet.layout.clone(), ..Default::default() },
+            TextureAtlas {
+                layout: sheet.layout.clone(),
+                ..Default::default()
+            },
         );
         sprite.anchor = Anchor::Custom(Vec2::new(0.0, -0.3));
 
         let mut anim = SpritesheetAnimation::from_id(idle_id);
         anim.playing = true;
 
-        commands.entity(e).insert((
-            sprite,
-            anim,
-            clips,
-            EnemyCurrentAnim(idle_id),
-        ));
+        commands
+            .entity(e)
+            .insert((sprite, anim, clips, EnemyCurrentAnim(idle_id)));
     }
 }
 
 fn drive_enemy_animation(
-    mut q: Query<(
-        &EnemyAnimClips,
-        &mut SpritesheetAnimation,
-        &mut EnemyCurrentAnim,
-        &LinearVelocity,
-        Option<&CollidingEntities>,
-        Option<&MeleeAttackActive>,
-    ), With<Enemy>>,
+    mut q: Query<
+        (
+            &EnemyAnimClips,
+            &mut SpritesheetAnimation,
+            &mut EnemyCurrentAnim,
+            &LinearVelocity,
+            Option<&CollidingEntities>,
+            Option<&MeleeAttackActive>,
+        ),
+        With<Enemy>,
+    >,
 ) {
     for (clips, mut anim, mut current, vel, contacts, melee) in &mut q {
         let on_ground = contacts.map(|c| !c.is_empty()).unwrap_or(true);
@@ -426,19 +479,33 @@ fn drive_enemy_animation(
         let want = if melee.is_some() {
             if in_air {
                 if vel.y <= 0.0 {
-                    clips.attack_fall.or(clips.attack_jump).or(Some(clips.attack_idle))
+                    clips
+                        .attack_fall
+                        .or(clips.attack_jump)
+                        .or(Some(clips.attack_idle))
                 } else {
-                    clips.attack_jump.or(clips.attack_fall).or(Some(clips.attack_idle))
+                    clips
+                        .attack_jump
+                        .or(clips.attack_fall)
+                        .or(Some(clips.attack_idle))
                 }
             } else if running {
-                clips.attack_run.or(clips.attack_walk).or(Some(clips.attack_idle))
+                clips
+                    .attack_run
+                    .or(clips.attack_walk)
+                    .or(Some(clips.attack_idle))
             } else if moving {
                 clips.attack_walk.or(Some(clips.attack_idle))
             } else {
                 Some(clips.attack_idle)
             }
         } else if in_air {
-            if vel.y > 0.0 { clips.jump.or(clips.fall) } else { clips.fall }.or(Some(clips.idle))
+            if vel.y > 0.0 {
+                clips.jump.or(clips.fall)
+            } else {
+                clips.fall
+            }
+            .or(Some(clips.idle))
         } else if running {
             clips.run.or(clips.walk).or(Some(clips.idle))
         } else if moving {

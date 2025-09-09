@@ -109,7 +109,9 @@ fn maybe_spawn_debug_holder(
             Transform::default(),
             GlobalTransform::default(),
         ));
-        info!("ClassPlugin: Spawned debug holder entity (ClassAttachTarget). Add `ClassAttachTarget` to your real player to attach there instead.");
+        info!(
+            "ClassPlugin: Spawned debug holder entity (ClassAttachTarget). Add `ClassAttachTarget` to your real player to attach there instead."
+        );
     }
 }
 

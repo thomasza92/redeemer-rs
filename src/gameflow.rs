@@ -79,13 +79,13 @@ impl Plugin for GameFlowPlugin {
             )
             .add_systems(
                 Update,
-                size_menu_bg_to_window.run_if(in_state(GameState::MainMenu))
+                size_menu_bg_to_window.run_if(in_state(GameState::MainMenu)),
             )
-            .add_systems(Update, size_menu_bg_to_window.run_if(in_state(GameState::Settings)))
             .add_systems(
-                OnExit(GameState::MainMenu),
-                despawn_ui::<MainMenuUI>
+                Update,
+                size_menu_bg_to_window.run_if(in_state(GameState::Settings)),
             )
+            .add_systems(OnExit(GameState::MainMenu), despawn_ui::<MainMenuUI>)
             .add_systems(OnEnter(GameState::Settings), spawn_settings_menu)
             .add_systems(OnEnter(GameState::InGame), despawn_menu_bg)
             .add_systems(OnExit(GameState::Settings), despawn_ui::<SettingsUI>)
@@ -141,7 +141,10 @@ fn menu_panel(commands: &mut Commands) -> Entity {
                 row_gap: Val::Px(12.0),
                 padding: UiRect::all(Val::Px(24.0)),
                 align_items: AlignItems::Stretch,
-                margin: UiRect { top: Val::Px(280.0), ..default() },
+                margin: UiRect {
+                    top: Val::Px(280.0),
+                    ..default()
+                },
                 ..default()
             },
             BackgroundColor(Color::srgb(0.08, 0.08, 0.12)),
@@ -205,8 +208,8 @@ fn spawn_main_menu(
     q_bg: Query<(), With<MainMenuBg>>,
 ) {
     if q_bg.is_empty() {
-        let stream_handle: Handle<vleue_kinetoscope::StreamingAnimatedImage>
-            = assets.load("ui/menu_bg.webp");
+        let stream_handle: Handle<vleue_kinetoscope::StreamingAnimatedImage> =
+            assets.load("ui/menu_bg.webp");
         commands.spawn((
             MainMenuBg,
             vleue_kinetoscope::StreamingAnimatedImageController::play(stream_handle),
@@ -221,9 +224,9 @@ fn spawn_main_menu(
     commands.entity(root).insert(MainMenuUI);
     commands.entity(root).add_child(panel);
 
-    let b_new  = spawn_button(&mut commands, &font, "New Game", MainBtn::NewGame);
-    let b_set  = spawn_button(&mut commands, &font, "Settings", MainBtn::Settings);
-    let b_quit = spawn_button(&mut commands, &font, "Quit",     MainBtn::Quit);
+    let b_new = spawn_button(&mut commands, &font, "New Game", MainBtn::NewGame);
+    let b_set = spawn_button(&mut commands, &font, "Settings", MainBtn::Settings);
+    let b_quit = spawn_button(&mut commands, &font, "Quit", MainBtn::Quit);
 
     commands.entity(panel).add_children(&[b_new, b_set, b_quit]);
 }
@@ -253,9 +256,9 @@ fn spawn_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
     commands.entity(root).insert(PauseMenuUI);
     commands.entity(root).add_child(panel);
 
-    let title  = menu_title(&mut commands, font.clone(), "PAUSED");
-    let b_res  = spawn_button(&mut commands, &font, "Resume",    PauseBtn::Resume);
-    let b_set  = spawn_button(&mut commands, &font, "Settings",  PauseBtn::Settings);
+    let title = menu_title(&mut commands, font.clone(), "PAUSED");
+    let b_res = spawn_button(&mut commands, &font, "Resume", PauseBtn::Resume);
+    let b_set = spawn_button(&mut commands, &font, "Settings", PauseBtn::Settings);
     let b_menu = spawn_button(&mut commands, &font, "Main Menu", PauseBtn::MainMenu);
 
     commands.entity(panel).add_child(title);
@@ -271,8 +274,8 @@ fn spawn_game_over(mut commands: Commands, assets: Res<AssetServer>) {
     commands.entity(root).insert(GameOverUI);
     commands.entity(root).add_child(panel);
 
-    let title  = menu_title(&mut commands, font.clone(), "GAME OVER");
-    let b_try  = spawn_button(&mut commands, &font, "Try Again", OverBtn::TryAgain);
+    let title = menu_title(&mut commands, font.clone(), "GAME OVER");
+    let b_try = spawn_button(&mut commands, &font, "Try Again", OverBtn::TryAgain);
     let b_menu = spawn_button(&mut commands, &font, "Main Menu", OverBtn::MainMenu);
 
     commands.entity(panel).add_child(title);
@@ -283,15 +286,14 @@ fn set_btn_color(bg: &mut BackgroundColor, interaction: Interaction) {
     *bg = match interaction {
         Interaction::Pressed => Color::srgba(0.40, 0.40, 0.60, 1.0).into(),
         Interaction::Hovered => Color::srgba(0.25, 0.25, 0.40, 1.0).into(),
-        Interaction::None    => Color::srgba(0.15, 0.15, 0.25, 1.0).into(),
+        Interaction::None => Color::srgba(0.15, 0.15, 0.25, 1.0).into(),
     };
 }
 
-fn size_menu_bg_to_window(
-    qwin: Query<&Window>,
-    mut q: Query<&mut Sprite, With<MainMenuBg>>,
-) {
-    let Ok(win) = qwin.single() else { return; };
+fn size_menu_bg_to_window(qwin: Query<&Window>, mut q: Query<&mut Sprite, With<MainMenuBg>>) {
+    let Ok(win) = qwin.single() else {
+        return;
+    };
     let size = Vec2::new(win.width(), win.height());
     for mut sprite in &mut q {
         sprite.custom_size = Some(size);
@@ -302,18 +304,23 @@ fn main_menu_buttons(
     mut next: ResMut<NextState<GameState>>,
     mut exit: EventWriter<AppExit>,
     mut back_target: ResMut<SettingsBackTarget>,
-    mut q: Query<(&Interaction, &mut BackgroundColor, &MainBtn), (Changed<Interaction>, With<Button>)>,
+    mut q: Query<
+        (&Interaction, &mut BackgroundColor, &MainBtn),
+        (Changed<Interaction>, With<Button>),
+    >,
 ) {
     for (i, mut bg, btn) in &mut q {
         set_btn_color(&mut bg, *i);
         if *i == Interaction::Pressed {
             match btn {
-                MainBtn::NewGame  => next.set(GameState::InGame),
+                MainBtn::NewGame => next.set(GameState::InGame),
                 MainBtn::Settings => {
                     back_target.0 = GameState::MainMenu;
                     next.set(GameState::Settings);
                 }
-                MainBtn::Quit     => { let _ = exit.write(AppExit::Success); }
+                MainBtn::Quit => {
+                    let _ = exit.write(AppExit::Success);
+                }
             }
         }
     }
@@ -322,7 +329,10 @@ fn main_menu_buttons(
 fn settings_buttons(
     mut next: ResMut<NextState<GameState>>,
     back_target: Res<SettingsBackTarget>,
-    mut q: Query<(&Interaction, &mut BackgroundColor, &SetBtn), (Changed<Interaction>, With<Button>)>,
+    mut q: Query<
+        (&Interaction, &mut BackgroundColor, &SetBtn),
+        (Changed<Interaction>, With<Button>),
+    >,
 ) {
     for (i, mut bg, btn) in &mut q {
         set_btn_color(&mut bg, *i);
@@ -337,13 +347,16 @@ fn settings_buttons(
 fn pause_menu_buttons(
     mut next: ResMut<NextState<GameState>>,
     mut back_target: ResMut<SettingsBackTarget>,
-    mut q: Query<(&Interaction, &mut BackgroundColor, &PauseBtn), (Changed<Interaction>, With<Button>)>,
+    mut q: Query<
+        (&Interaction, &mut BackgroundColor, &PauseBtn),
+        (Changed<Interaction>, With<Button>),
+    >,
 ) {
     for (i, mut bg, btn) in &mut q {
         set_btn_color(&mut bg, *i);
         if *i == Interaction::Pressed {
             match btn {
-                PauseBtn::Resume   => next.set(GameState::InGame),
+                PauseBtn::Resume => next.set(GameState::InGame),
                 PauseBtn::Settings => {
                     back_target.0 = GameState::Paused;
                     next.set(GameState::Settings);
@@ -382,13 +395,14 @@ fn esc_to_resume(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<Gam
         next.set(GameState::InGame);
     }
 }
-fn pause_time(mut time: ResMut<Time<Virtual>>) { time.pause(); }
-fn resume_time(mut time: ResMut<Time<Virtual>>) { time.unpause(); }
+fn pause_time(mut time: ResMut<Time<Virtual>>) {
+    time.pause();
+}
+fn resume_time(mut time: ResMut<Time<Virtual>>) {
+    time.unpause();
+}
 
-fn to_game_over_on_death(
-    mut ev: EventReader<PlayerDied>,
-    mut next: ResMut<NextState<GameState>>,
-) {
+fn to_game_over_on_death(mut ev: EventReader<PlayerDied>, mut next: ResMut<NextState<GameState>>) {
     if ev.read().next().is_some() {
         next.set(GameState::GameOver);
     }

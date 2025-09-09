@@ -8,8 +8,10 @@ pub struct PlayerAnimationsPlugin;
 
 impl Plugin for PlayerAnimationsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PlayerSpritesheet>()
-            .add_systems(Startup, (load_player_spritesheet, register_player_animations).chain());
+        app.init_resource::<PlayerSpritesheet>().add_systems(
+            Startup,
+            (load_player_spritesheet, register_player_animations).chain(),
+        );
     }
 }
 
@@ -110,8 +112,8 @@ fn register_player_animations(
             spritesheet.row_partial(a.row, 0..=a.last_col)
         };
 
-        let clip = Clip::from_frames(frames)
-            .with_duration(AnimationDuration::PerFrame(DEFAULT_FRAME_MS));
+        let clip =
+            Clip::from_frames(frames).with_duration(AnimationDuration::PerFrame(DEFAULT_FRAME_MS));
 
         let clip_id = library.register_clip(clip);
         let anim_id = library.register_animation(Animation::from_clip(clip_id));

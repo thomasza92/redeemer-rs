@@ -1,28 +1,29 @@
-mod level;
-mod camera;
 mod animations;
+mod camera;
 mod character;
 mod class;
-mod prelude;
-mod hud;
-mod gameflow;
-mod raycasts;
 mod enemy;
+mod gameflow;
+mod hud;
+mod level;
+mod prelude;
+mod raycasts;
 
-use crate::prelude::*;
+use crate::MonitorSelection::*;
 use crate::animations::PlayerAnimationsPlugin;
 use crate::camera::{
-    camera_follow, despawn_main_camera, despawn_menu_camera, spawn_follow_camera, spawn_menu_camera};
-use crate::character::{spawn_main_character, Action, PlayerPlugin};
-use crate::enemy::{EnemyPlugin, spawn_enemy};
+    camera_follow, despawn_main_camera, despawn_menu_camera, spawn_follow_camera, spawn_menu_camera,
+};
+use crate::character::{Action, PlayerPlugin, spawn_main_character};
 use crate::class::ClassPlugin;
-use crate::gameflow::{despawn_gameplay, GameFlowPlugin, GameState};
-use crate::level::{pass_through_one_way_platform, spawn_map, PlatformerCollisionHooks};
+use crate::enemy::{EnemyPlugin, spawn_enemy};
+use crate::gameflow::{GameFlowPlugin, GameState, despawn_gameplay};
 use crate::hud::HudPlugin;
+use crate::level::{PlatformerCollisionHooks, pass_through_one_way_platform, spawn_map};
+use crate::prelude::*;
 use bevy_window::PresentMode;
-use vleue_kinetoscope::AnimatedImagePlugin;
 use bevy_window::WindowMode;
-use crate::MonitorSelection::*;
+use vleue_kinetoscope::AnimatedImagePlugin;
 // use bevy_inspector_egui::quick::WorldInspectorPlugin;
 // use bevy_egui::EguiPlugin;
 
@@ -70,10 +71,10 @@ fn main() {
                 .with_length_unit(2.0)
                 .with_collision_hooks::<PlatformerCollisionHooks>(),
             Light2dPlugin,
-//            PhysicsDebugPlugin::default(),
+            //            PhysicsDebugPlugin::default(),
         ))
-//        .add_plugins(EguiPlugin::default())
-//        .add_plugins(WorldInspectorPlugin::new())
+        //        .add_plugins(EguiPlugin::default())
+        //        .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(SpritesheetAnimationPlugin)
         .add_plugins(PlayerAnimationsPlugin)
         .add_plugins(PlayerPlugin)
@@ -91,7 +92,12 @@ fn main() {
             OnEnter(GameState::InGame),
             (
                 despawn_menu_camera,
-                (spawn_map, spawn_main_character, spawn_follow_camera, spawn_enemies)
+                (
+                    spawn_map,
+                    spawn_main_character,
+                    spawn_follow_camera,
+                    spawn_enemies,
+                )
                     .run_if(world_not_loaded),
                 mark_world_loaded.run_if(world_not_loaded),
             )
@@ -99,9 +105,17 @@ fn main() {
         )
         .add_systems(
             OnEnter(GameState::MainMenu),
-            (despawn_gameplay, despawn_main_camera, clear_world_loaded, spawn_menu_camera),
+            (
+                despawn_gameplay,
+                despawn_main_camera,
+                clear_world_loaded,
+                spawn_menu_camera,
+            ),
         )
-        .add_systems(OnEnter(GameState::GameOver), (despawn_gameplay, clear_world_loaded))
+        .add_systems(
+            OnEnter(GameState::GameOver),
+            (despawn_gameplay, clear_world_loaded),
+        )
         .add_systems(
             FixedUpdate,
             (pass_through_one_way_platform, camera_follow).run_if(in_state(GameState::InGame)),

@@ -1,5 +1,5 @@
-use crate::prelude::*;
 use crate::character::Player;
+use crate::prelude::*;
 use bevy_egui::PrimaryEguiContext;
 
 #[derive(Component)]
@@ -8,10 +8,7 @@ pub struct MainCamera;
 #[derive(Component)]
 pub struct MenuCamera;
 
-pub fn spawn_follow_camera(
-    mut commands: Commands,
-    existing: Query<(), With<MainCamera>>,
-) {
+pub fn spawn_follow_camera(mut commands: Commands, existing: Query<(), With<MainCamera>>) {
     if existing.is_empty() {
         let mut projection = OrthographicProjection::default_2d();
         projection.scale = 0.33;
@@ -22,7 +19,10 @@ pub fn spawn_follow_camera(
             PrimaryEguiContext,
             Projection::Orthographic(projection),
             Light2d {
-                ambient_light: AmbientLight2d { brightness: 0.1, ..default() },
+                ambient_light: AmbientLight2d {
+                    brightness: 0.1,
+                    ..default()
+                },
             },
         ));
     }
@@ -32,10 +32,14 @@ pub fn camera_follow(
     player_q: Query<&GlobalTransform, With<Player>>,
     mut cam_q: Query<&mut Transform, (With<MainCamera>, Without<Player>)>,
 ) {
-    let Ok(player_gt) = player_q.single() else { return; };
-    let Ok(mut cam_tf)  = cam_q.single_mut() else { return; };
+    let Ok(player_gt) = player_q.single() else {
+        return;
+    };
+    let Ok(mut cam_tf) = cam_q.single_mut() else {
+        return;
+    };
     let cam_adjust = Vec2::new(0., 3.);
-    let target_xy  = player_gt.translation().truncate() + cam_adjust;
+    let target_xy = player_gt.translation().truncate() + cam_adjust;
     let current_xy = cam_tf.translation.truncate() + cam_adjust;
     let t = 1.0 - (-10.0 * time.delta_secs()).exp();
     let new_xy = current_xy.lerp(target_xy, t);
@@ -49,8 +53,12 @@ pub fn spawn_menu_camera(mut commands: Commands, q_existing: Query<(), With<Menu
     }
 }
 pub fn despawn_menu_camera(mut commands: Commands, q: Query<Entity, With<MenuCamera>>) {
-    for e in &q { commands.entity(e).despawn(); }
+    for e in &q {
+        commands.entity(e).despawn();
+    }
 }
 pub fn despawn_main_camera(mut commands: Commands, q: Query<Entity, With<MainCamera>>) {
-    for e in &q { commands.entity(e).despawn(); }
+    for e in &q {
+        commands.entity(e).despawn();
+    }
 }

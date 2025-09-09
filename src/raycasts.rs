@@ -1,9 +1,9 @@
+use crate::class::{ClassAttachTarget, PlayerClass};
+use crate::hud::PlayerStats;
+use avian2d::spatial_query::{RayCaster, RayHits, SpatialQueryFilter};
 use bevy::prelude::*;
 use bevy::sprite::Sprite;
-use avian2d::spatial_query::{RayCaster, RayHits, SpatialQueryFilter};
 use std::collections::HashSet;
-use crate::hud::PlayerStats;
-use crate::class::{ClassAttachTarget, PlayerClass};
 
 #[derive(Component, Clone)]
 pub struct MeleeRaycastSpec {
@@ -44,8 +44,7 @@ pub struct RaycastMeleePlugin;
 
 impl Plugin for RaycastMeleePlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_event::<MeleeRaycastHit>()
+        app.add_event::<MeleeRaycastHit>()
             .configure_sets(
                 Update,
                 (RaycastMeleeSet::Cast, RaycastMeleeSet::ApplyDamage).chain(),
@@ -121,7 +120,9 @@ fn keep_ray_facing_correctly(
 ) {
     for (attacker, sprite, gt) in &attackers {
         let facing_right = is_facing_right(sprite, gt);
-        let Ok(spec) = specs.get(attacker) else { continue };
+        let Ok(spec) = specs.get(attacker) else {
+            continue;
+        };
 
         let origin = if facing_right {
             spec.offset
@@ -171,7 +172,9 @@ fn emit_hits_from_rays(
 ) {
     for (child_of, ray_hits) in &rays {
         let attacker = child_of.0; // parent entity
-        let Ok(spec) = specs.get(attacker) else { continue };
+        let Ok(spec) = specs.get(attacker) else {
+            continue;
+        };
 
         for hit in ray_hits.iter_sorted() {
             let target = hit.entity;
@@ -192,7 +195,6 @@ fn emit_hits_from_rays(
                 normal: hit.normal,
                 damage: spec.damage,
             });
-            
         }
     }
 }

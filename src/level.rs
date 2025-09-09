@@ -1,10 +1,10 @@
-use crate::prelude::*;
-use bevy::ecs::{
-        entity::hash_set::EntityHashSet,
-        system::{SystemParam, lifetimeless::Read}
-    };
 use crate::character::Player;
 use crate::gameflow::GameplayRoot;
+use crate::prelude::*;
+use bevy::ecs::{
+    entity::hash_set::EntityHashSet,
+    system::{SystemParam, lifetimeless::Read},
+};
 use bevy_light_2d::light::SpotLight2d;
 
 pub fn spawn_map(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -14,19 +14,19 @@ pub fn spawn_map(mut commands: Commands, asset_server: Res<AssetServer>) {
             GameplayRoot,
             TilemapAnchor::CenterLeft,
         ))
-        .observe(|ev: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
-            commands.entity(ev.event().origin).insert((
-                RigidBody::Static,
-                Friction::ZERO,
-            ));
-        })
+        .observe(
+            |ev: Trigger<TiledEvent<ColliderCreated>>, mut commands: Commands| {
+                commands
+                    .entity(ev.event().origin)
+                    .insert((RigidBody::Static, Friction::ZERO));
+            },
+        )
         .observe(
             |ev: Trigger<TiledEvent<ObjectCreated>>,
              mut commands: Commands,
              maps: Res<Assets<TiledMapAsset>>| {
                 if let Some(obj) = ev.event().get_object(&maps) {
-                    let is_streetlight =
-                        obj.user_type.eq_ignore_ascii_case("StreetLight")
+                    let is_streetlight = obj.user_type.eq_ignore_ascii_case("StreetLight")
                         || obj.name.eq_ignore_ascii_case("StreetLight");
 
                     if is_streetlight {
@@ -47,7 +47,6 @@ pub fn spawn_map(mut commands: Commands, asset_server: Res<AssetServer>) {
             },
         );
 }
-
 
 #[derive(Clone, Eq, PartialEq, Debug, Default, Component)]
 #[require(ActiveCollisionHooks::MODIFY_CONTACTS)]
@@ -88,7 +87,7 @@ pub struct PlatformerCollisionHooks<'w, 's> {
 }
 
 impl CollisionHooks for PlatformerCollisionHooks<'_, '_> {
-fn modify_contacts(&self, contacts: &mut ContactPair, commands: &mut Commands) -> bool {
+    fn modify_contacts(&self, contacts: &mut ContactPair, commands: &mut Commands) -> bool {
         enum RelevantNormal {
             Normal1,
             Normal2,
@@ -135,7 +134,6 @@ fn modify_contacts(&self, contacts: &mut ContactPair, commands: &mut Commands) -
                 });
             }
         }
-
         match self.other_colliders_query.get(other_entity) {
             Ok(Some(PassThroughOneWayPlatform::Never)) => true,
             Ok(Some(PassThroughOneWayPlatform::Always)) => {
