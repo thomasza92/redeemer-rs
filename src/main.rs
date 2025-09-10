@@ -14,7 +14,7 @@ mod prelude;
 mod raycasts;
 
 use crate::MonitorSelection::*;
-use crate::animations::PlayerAnimationsPlugin;
+use crate::animations::AnimationsPlugin;
 use crate::camera::{
     camera_follow, despawn_main_camera, despawn_menu_camera, spawn_follow_camera, spawn_menu_camera,
 };
@@ -83,7 +83,7 @@ fn main() {
         .add_plugins(EguiPlugin::default())
         .add_plugins(WorldInspectorPlugin::new())
         .add_plugins(SpritesheetAnimationPlugin)
-        .add_plugins(PlayerAnimationsPlugin)
+        .add_plugins(AnimationsPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(EnemyPlugin)
         .add_plugins(ClassPlugin::new("assets/class_unknown.json").spawn_debug_holder(false))

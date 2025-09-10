@@ -1,5 +1,5 @@
 // enemy.rs
-use crate::animations::{DEFAULT_FRAME_MS, to_anim_name};
+use crate::animations::{DEFAULT_FRAME_MS, to_enemy_anim_name};
 use crate::character::{GameLayer, Player};
 use crate::enemy_class::{EnemyClass, EnemyClassAttachTarget};
 use crate::gameflow::GameplayRoot;
@@ -32,7 +32,7 @@ fn load_anim_seconds_from_json(json_path: &str) -> HashMap<String, f32> {
     if let Ok(text) = std::fs::read_to_string(json_path) {
         if let Ok(manifest) = serde_json::from_str::<MiniManifest>(&text) {
             for a in manifest.animations {
-                let pretty = to_anim_name(&a.name);
+                let pretty = to_enemy_anim_name(&a.name);
                 let frames = a.last_col as u32;
                 let secs = (frames * DEFAULT_FRAME_MS) as f32 / 1000.0;
                 map.insert(pretty, secs);
@@ -616,58 +616,50 @@ fn face_by_target_or_velocity(
 
 fn on_enemy_added_attach_sprite_and_anims(
     mut commands: Commands,
-    sheet: Res<crate::animations::PlayerSpritesheet>, // reuse your existing spritesheet asset
+    sheet: Res<crate::animations::EnemySpritesheet>, // reuse your existing spritesheet asset
     library: Res<AnimationLibrary>,
     added: Query<Entity, Added<Enemy>>,
 ) {
     for e in &added {
         // If you have an "enemy_combat:..." set, swap names accordingly.
         let idle_id = library
-            .animation_with_name("player_combat:swordidle")
-            .expect("missing animation: player_combat:swordidle");
+            .animation_with_name("enemy:idle")
+            .expect("missing animation: enemy:idle");
 
         let clips = EnemyAnimClips {
             idle: idle_id,
-            walk: library.animation_with_name("player_combat:swordrun"),
-            run: library.animation_with_name("player_combat:swordsprint"),
-            jump: library.animation_with_name("player_combat:swordjumpmid"),
-            fall: library.animation_with_name("player_combat:swordjumpfall"),
+            walk: library.animation_with_name("enemy:walk"),
+            run: library.animation_with_name("enemy:run"),
+            jump: library.animation_with_name("enemy:jumpmid"),
+            fall: library.animation_with_name("enemy:jumpfall"),
             attack_idle: library
-                .animation_with_name("player_combat:standingslash")
-                .expect("missing animation: player_combat:standingslash"),
-            attack_walk: library.animation_with_name("player_combat:swordrunslash"),
-            attack_run: library.animation_with_name("player_combat:swordsprintslash"),
-            attack_jump: library.animation_with_name("player_combat:airslashup"),
-            attack_fall: library.animation_with_name("player_combat:airslashdown"),
+                .animation_with_name("enemy:attack")
+                .expect("missing animation: enemy:attack"),
+            attack_walk: library.animation_with_name("enemy:attack"),
+            attack_run: library.animation_with_name("enemy:blastattack"),
+            attack_jump: library.animation_with_name("enemy:jumpmid"),
+            attack_fall: library.animation_with_name("enemy:jumpfall"),
             // NEW:
-            stunned: library.animation_with_name("player_combat:stunned"),
-            die: library.animation_with_name("player:die"),
+            stunned: library.animation_with_name("enemy:shocka"),
+            die: library.animation_with_name("enemy:die"),
         };
 
         // Load precise durations from JSON (same source as player)
-        let secs_map = load_anim_seconds_from_json("assets/PlayerSheet2.json");
+        let secs_map = load_anim_seconds_from_json("assets/EnemySheet.json");
 
-        let secs_attack_idle = *secs_map
-            .get("player_combat:standingslash")
-            .unwrap_or(&SWING_DEFAULT);
-        let secs_attack_walk = *secs_map
-            .get("player_combat:swordrunslash")
-            .unwrap_or(&secs_attack_idle);
+        let secs_attack_idle = *secs_map.get("enemy:attack").unwrap_or(&SWING_DEFAULT);
+        let secs_attack_walk = *secs_map.get("enemy:attack").unwrap_or(&secs_attack_idle);
         let secs_attack_run = *secs_map
-            .get("player_combat:swordsprintslash")
+            .get("enemy:blastattack")
             .unwrap_or(&secs_attack_walk);
-        let secs_attack_jump = *secs_map
-            .get("player_combat:airslashup")
-            .unwrap_or(&secs_attack_idle);
-        let secs_attack_fall = *secs_map
-            .get("player_combat:airslashdown")
-            .unwrap_or(&secs_attack_jump);
+        let secs_attack_jump = *secs_map.get("enemy:jumpmid").unwrap_or(&secs_attack_idle);
+        let secs_attack_fall = *secs_map.get("enemy:jumpfall").unwrap_or(&secs_attack_jump);
 
         let stun_secs = *secs_map
-            .get("player_combat:stunned")
-            .or_else(|| secs_map.get("player:stunned"))
+            .get("enemy:shocka")
+            .or_else(|| secs_map.get("enemy:shocka"))
             .unwrap_or(&0.6);
-        let die_secs = *secs_map.get("player:die").unwrap_or(&1.2);
+        let die_secs = *secs_map.get("enemy:die").unwrap_or(&1.2);
 
         let mut sprite = Sprite::from_atlas_image(
             sheet.image.clone(),
@@ -954,7 +946,7 @@ fn on_added_enemy_dead_make_passive(
 ) {
     for (e, mut t, mut vel) in &mut q {
         // Visual: sit behind the player a bit
-        t.translation.z -= 0.5;
+        t.translation.z -= 101.0;
 
         // Physics: freeze & disable collision
         vel.x = 0.0;

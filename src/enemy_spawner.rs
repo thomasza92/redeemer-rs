@@ -13,27 +13,23 @@ use crate::enemy::spawn_enemy; // your existing enemy spawner function
 /// Configuration + timer for periodic enemy spawns.
 #[derive(Resource)]
 pub struct EnemySpawner {
-    /// How often to try to spawn a new enemy.
     pub timer: Timer,
-    /// How many random X samples to try per tick until one hits ground.
     pub attempts_per_tick: u32,
-    /// How far down to raycast to find ground.
     pub ray_down: f32,
-    /// How far above the hit point to place the spawn.
     pub y_above_ground: f32,
-    /// Patrol half-width: enemy will patrol [x - span, x + span].
     pub _patrol_span: f32,
+    pub spawn_z: f32, // ← add this
 }
 
 impl Default for EnemySpawner {
     fn default() -> Self {
         Self {
-            // 30 seconds
             timer: Timer::from_seconds(5.0, TimerMode::Repeating),
             attempts_per_tick: 8,
             ray_down: 2000.0,
             y_above_ground: 8.0,
             _patrol_span: 100.0,
+            spawn_z: -100.1,
         }
     }
 }
@@ -135,8 +131,10 @@ fn tick_enemy_spawner(
         if let Some((pos, left, right)) =
             try_pick_spawn_point(min, max, &spatial, spawner.y_above_ground, spawner.ray_down)
         {
-            // Your existing helper from enemy.rs:
-            spawn_enemy(&mut commands, pos, left, right);
+            let e = spawn_enemy(&mut commands, pos, left, right);
+            commands
+                .entity(e)
+                .insert(Transform::from_xyz(pos.x, pos.y, spawner.spawn_z));
             break;
         }
     }

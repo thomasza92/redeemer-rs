@@ -548,7 +548,7 @@ pub fn spawn_main_character(
             one_way: PassThroughOneWayPlatform::Never,
             input_map,
             action_state: ActionState::default(),
-            transform: Transform::from_xyz(0., 0., -1.),
+            transform: Transform::from_xyz(0., 0., -100.1),
             global_transform: GlobalTransform::default(),
             impacts,
         })
