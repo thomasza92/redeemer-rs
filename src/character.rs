@@ -1,7 +1,8 @@
 use crate::animations::PlayerSpritesheet;
 use crate::animations::{DEFAULT_FRAME_MS, to_anim_name};
 use crate::class::*;
-use crate::gameflow::GameplayRoot;
+use crate::gameflow::{GameplayRoot, PlayerDied};
+use crate::hud::PlayerStats;
 use crate::level::PassThroughOneWayPlatform;
 use crate::prelude::*;
 use crate::raycasts::{MeleeAttackActive, MeleeRaycastHit, MeleeRaycastSpec, RaycastMeleePlugin};
@@ -21,6 +22,7 @@ pub enum GameLayer {
     Player,
     Enemy,
 }
+
 // ───────── Input ─────────
 #[derive(Actionlike, Clone, Eq, Hash, PartialEq, Reflect, Debug)]
 pub enum Action {
@@ -57,7 +59,6 @@ pub struct SprintJumping;
 pub struct Falling;
 
 // Attack states & animation handling
-
 #[derive(Component, Reflect, Default, Debug, Clone)]
 #[component(storage = "SparseSet")]
 pub struct IdleAttack;
@@ -86,6 +87,32 @@ struct AttackDurationsComp {
     jump: f32,
     fall: f32,
 }
+
+// ───────── Stun / Death ─────────
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct Stunned;
+
+#[derive(Component, Reflect, Default, Debug, Clone)]
+#[component(storage = "SparseSet")]
+pub struct Dead;
+
+#[derive(Component)]
+struct StunTimer(Timer);
+
+#[derive(Component)]
+struct DeathTimer(Timer);
+
+#[derive(Component, Clone)]
+struct ImpactDurations {
+    stun: f32,
+    die: f32,
+}
+
+// Remember last hit direction (from raycast)
+#[derive(Component, Default, Debug, Clone, Copy)]
+struct LastHitDir(Vec2);
+
 #[derive(Deserialize)]
 struct MiniAnim {
     name: String,
@@ -127,6 +154,9 @@ pub struct AnimClips {
     pub attack_run: Option<AnimationId>,
     pub attack_jump: Option<AnimationId>,
     pub attack_fall: Option<AnimationId>,
+    // NEW:
+    pub stunned: Option<AnimationId>,
+    pub die: Option<AnimationId>,
 }
 
 // ───────── Tuning ────────
@@ -134,6 +164,10 @@ const PLAYER_SPEED: f32 = 160.0;
 const SPRINT_MULTIPLIER: f32 = 1.75;
 const JUMP_VELOCITY: f32 = 520.0;
 const ATTACK_COOLDOWN_S: f32 = 0.15;
+
+// Knockback tuning
+const KNOCKBACK_SPEED: f32 = 280.0; // horiz push (was 240)
+const KNOCKBACK_POP: f32 = 260.0; // upward pop (was 40) ~ half a jump
 
 // ───────── Tags ─────────
 #[derive(Component)]
@@ -174,6 +208,8 @@ struct PlayerBundle {
     action_state: ActionState<Action>,
     transform: Transform,
     global_transform: GlobalTransform,
+    // NEW:
+    impacts: ImpactDurations,
 }
 
 // ───────── Spawner ─────────
@@ -200,6 +236,9 @@ pub fn spawn_main_character(
         attack_run: library.animation_with_name("player_combat:swordsprintslash"),
         attack_jump: library.animation_with_name("player_combat:airslashup"),
         attack_fall: library.animation_with_name("player_combat:airslashdown"),
+        // NEW:
+        stunned: library.animation_with_name("player_combat:stunned"),
+        die: library.animation_with_name("player:die"),
     };
 
     // Sprite
@@ -229,7 +268,11 @@ pub fn spawn_main_character(
     // Anim
     let mut anim = SpritesheetAnimation::from_id(idle_id);
     anim.playing = true;
+
+    // Durations from JSON
     let secs_map = load_anim_seconds_from_json("assets/PlayerSheet2.json");
+
+    // Attack durations
     let dur_idle = *secs_map.get("player_combat:standingslash").unwrap_or(&0.5);
     let dur_walk = *secs_map
         .get("player_combat:swordrunslash")
@@ -249,6 +292,12 @@ pub fn spawn_main_character(
         run: dur_run,
         jump: dur_jump,
         fall: dur_fall,
+    };
+
+    // NEW: impact (stun/death) durations with defaults
+    let impacts = ImpactDurations {
+        stun: *secs_map.get("player:stunned").unwrap_or(&0.6),
+        die: *secs_map.get("player:die").unwrap_or(&1.2),
     };
 
     // Triggers
@@ -370,7 +419,12 @@ pub fn spawn_main_character(
         In(e): In<Entity>,
         act_q: Query<&ActionState<Action>>,
         cd_q: Query<&AttackCooldown>,
+        stun_q: Query<&Stunned>,
+        dead_q: Query<&Dead>,
     ) -> bool {
+        if stun_q.get(e).is_ok() || dead_q.get(e).is_ok() {
+            return false;
+        }
         if let (Ok(a), Ok(cd)) = (act_q.get(e), cd_q.get(e)) {
             a.just_pressed(&Action::Attack) && cd.0.finished()
         } else {
@@ -496,12 +550,13 @@ pub fn spawn_main_character(
             action_state: ActionState::default(),
             transform: Transform::from_xyz(0., 0., -1.),
             global_transform: GlobalTransform::default(),
+            impacts,
         })
         .insert(MeleeRaycastSpec {
             offset: Vec2::new(18.0, 8.0),
             length: 46.0,
             max_hits: 1,
-            damage: 1,
+            damage: 20,
             filter: enemy_mask,
             solid: false,
             once_per_swing: true,
@@ -513,6 +568,7 @@ pub fn spawn_main_character(
             LayerMask::from(GameLayer::Enemy) | LayerMask::from(GameLayer::Default),
         ))
         .id();
+
     commands
         .entity(entity)
         .insert(AttackCooldown(Timer::from_seconds(0.0, TimerMode::Once)));
@@ -528,11 +584,24 @@ fn drive_motion_set_velocity(
             Option<&Jumping>,
             Option<&Falling>,
             Option<&SprintJumping>,
+            Option<&Stunned>,
+            Option<&Dead>,
         ),
         With<Player>,
     >,
 ) {
-    for (actions, mut vel, jumping, falling, sprint_jumping) in &mut q {
+    for (actions, mut vel, jumping, falling, sprint_jumping, stunned, dead) in &mut q {
+        // Dead → completely frozen
+        if dead.is_some() {
+            vel.x = 0.0;
+            vel.y = 0.0;
+            continue;
+        }
+        // Stunned → preserve current velocity (knockback), but no input acceleration
+        if stunned.is_some() {
+            continue;
+        }
+
         let axis = actions.value(&Action::Move);
         let in_air = jumping.is_some() || falling.is_some() || sprint_jumping.is_some();
         let base_speed_mag = axis.abs() * PLAYER_SPEED;
@@ -554,15 +623,63 @@ fn drive_motion_set_velocity(
 }
 
 fn on_added_jumping_set_impulse(
-    mut q: Query<&mut LinearVelocity, Or<(Added<Jumping>, Added<SprintJumping>)>>,
+    mut q: Query<
+        (&mut LinearVelocity, Option<&Stunned>, Option<&Dead>),
+        Or<(Added<Jumping>, Added<SprintJumping>)>,
+    >,
 ) {
-    for mut vel in &mut q {
+    for (mut vel, stunned, dead) in &mut q {
+        if stunned.is_some() || dead.is_some() {
+            continue;
+        }
         vel.y = JUMP_VELOCITY;
     }
 }
 
-fn face_by_input(mut q: Query<(&ActionState<Action>, &mut Sprite), With<Player>>) {
-    for (actions, mut sprite) in &mut q {
+// NEW: Apply knockback velocity when Stunned is added
+fn on_added_stunned_apply_knockback(
+    mut q: Query<(&mut LinearVelocity, Option<&LastHitDir>, Option<&Sprite>), Added<Stunned>>,
+) {
+    for (mut vel, last_hit, sprite) in &mut q {
+        // Prefer attacker→player direction; otherwise "back" relative to facing
+        let dir = if let Some(d) = last_hit {
+            d.0
+        } else {
+            let facing_right = sprite.map(|s| !s.flip_x).unwrap_or(true);
+            if facing_right {
+                Vec2::new(-1.0, 0.2)
+            } else {
+                Vec2::new(1.0, 0.2)
+            }
+        };
+
+        // Horizontal sign from dir.x (fallback to facing if near-zero)
+        let x_sign = if dir.x.abs() >= 0.1 {
+            dir.x.signum()
+        } else {
+            let facing_right = sprite.map(|s| !s.flip_x).unwrap_or(true);
+            if facing_right { -1.0 } else { 1.0 }
+        };
+        vel.x = x_sign * KNOCKBACK_SPEED;
+        vel.y = vel.y.max((dir.y.abs() * 0.5 + 1.0) * KNOCKBACK_POP); // force upward even if we were falling
+    }
+}
+
+fn face_by_input(
+    mut q: Query<
+        (
+            &ActionState<Action>,
+            Option<&Stunned>,
+            Option<&Dead>,
+            &mut Sprite,
+        ),
+        With<Player>,
+    >,
+) {
+    for (actions, stunned, dead, mut sprite) in &mut q {
+        if stunned.is_some() || dead.is_some() {
+            continue;
+        }
         let axis = actions.value(&Action::Move);
         if axis > 0.1 {
             sprite.flip_x = false;
@@ -696,77 +813,141 @@ fn clear_attack_done(
     }
 }
 
-// ───────── Animation ─────────
+// ───────── Health reactions (from external PlayerStats) ─────────
+fn react_to_health_changes(
+    mut commands: Commands,
+    stats: Res<PlayerStats>,
+    q: Query<(Entity, Option<&Dead>, &ImpactDurations), With<Player>>,
+    mut last_hp: Local<Option<f32>>,
+) {
+    let Some((e, is_dead, impacts)) = q.iter().next() else {
+        return;
+    };
+
+    let prev = last_hp.unwrap_or(stats.health);
+    *last_hp = Some(stats.health);
+
+    if !stats.is_changed() && stats.health == prev {
+        return;
+    }
+
+    if stats.health < prev && is_dead.is_none() {
+        if stats.health <= 0.0 {
+            // death path unchanged...
+            commands
+                .entity(e)
+                .remove::<Stunned>()
+                .remove::<StunTimer>()
+                .insert(Dead)
+                .insert(DeathTimer(Timer::from_seconds(
+                    impacts.die,
+                    TimerMode::Once,
+                )));
+        } else {
+            // ✅ Replace the old "clear attacks" block with these two lines:
+            // Disable hitbox while stunned, but keep the current machine state intact.
+            commands.entity(e).remove::<MeleeAttackActive>();
+            // Let the machine gracefully exit any attack state on its own:
+            commands.entity(e).insert(AttackDone);
+
+            // Enter stun (knockback is applied by on_added_stunned_apply_knockback)
+            commands
+                .entity(e)
+                .insert(Stunned)
+                .insert(StunTimer(Timer::from_seconds(
+                    impacts.stun,
+                    TimerMode::Once,
+                )));
+        }
+    }
+}
+
+fn tick_stun_and_death_timers(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q_stun: Query<(Entity, &mut StunTimer), With<Stunned>>,
+    mut q_dead: Query<(Entity, &mut DeathTimer), With<Dead>>,
+    mut died_ev: EventWriter<PlayerDied>,
+) {
+    for (e, mut t) in &mut q_stun {
+        t.0.tick(time.delta());
+        if t.0.finished() {
+            commands.entity(e).remove::<Stunned>().remove::<StunTimer>();
+        }
+    }
+    for (_e, mut t) in &mut q_dead {
+        t.0.tick(time.delta());
+        if t.0.finished() {
+            // Keep Dead tag so the corpse stays inert; notify GameFlow
+            died_ev.write(PlayerDied);
+            // Remove only the timer (leave Dead)
+            // commands.entity(_e).remove::<Dead>();
+        }
+    }
+}
+
+// ───────── Animation (refactored to avoid >16 tuple limit) ─────────
 fn drive_animation(
-    mut q: Query<
+    mut q_anim: Query<
         (
+            Entity,
             &AnimClips,
             &mut SpritesheetAnimation,
             &mut CurrentAnim,
-            Option<&Idle>,
-            Option<&Walking>,
-            Option<&Running>,
-            Option<&Jumping>,
-            Option<&Falling>,
-            Option<&SprintJumping>,
-            Option<&IdleAttack>,
-            Option<&WalkingAttack>,
-            Option<&RunningAttack>,
-            Option<&JumpingAttack>,
-            Option<&FallingAttack>,
             &LinearVelocity,
         ),
         With<Player>,
     >,
+    q_idle: Query<(), With<Idle>>,
+    q_walking: Query<(), With<Walking>>,
+    q_running: Query<(), With<Running>>,
+    q_jumping: Query<(), With<Jumping>>,
+    q_falling: Query<(), With<Falling>>,
+    q_sprint_jump: Query<(), With<SprintJumping>>,
+    q_idle_a: Query<(), With<IdleAttack>>,
+    q_walking_a: Query<(), With<WalkingAttack>>,
+    q_running_a: Query<(), With<RunningAttack>>,
+    q_jumping_a: Query<(), With<JumpingAttack>>,
+    q_falling_a: Query<(), With<FallingAttack>>,
+    q_stunned: Query<(), With<Stunned>>,
+    q_dead: Query<(), With<Dead>>,
 ) {
-    for (
-        clips,
-        mut anim,
-        mut current,
-        _idle,
-        walking,
-        running,
-        jumping,
-        falling,
-        sprint_jumping,
-        idle_a,
-        walking_a,
-        running_a,
-        jumping_a,
-        falling_a,
-        vel,
-    ) in &mut q
-    {
-        // Attack takes precedence; pick specific attack clip per state
-        let want = if idle_a.is_some() {
+    for (e, clips, mut anim, mut current, vel) in &mut q_anim {
+        let want = if q_dead.get(e).is_ok() {
+            clips.die.or(Some(clips.idle))
+        } else if q_stunned.get(e).is_ok() {
+            clips.stunned.or(Some(clips.idle))
+        } else if q_idle_a.get(e).is_ok() {
             Some(clips.attack_idle)
-        } else if walking_a.is_some() {
+        } else if q_walking_a.get(e).is_ok() {
             clips.attack_walk.or(Some(clips.attack_idle))
-        } else if running_a.is_some() {
+        } else if q_running_a.get(e).is_ok() {
             clips
                 .attack_run
                 .or(clips.attack_walk)
                 .or(Some(clips.attack_idle))
-        } else if jumping_a.is_some() {
+        } else if q_jumping_a.get(e).is_ok() {
             clips.attack_jump.or(Some(clips.attack_idle))
-        } else if falling_a.is_some() {
+        } else if q_falling_a.get(e).is_ok() {
             clips
                 .attack_fall
                 .or(clips.attack_jump)
                 .or(Some(clips.attack_idle))
-        } else if sprint_jumping.is_some() || jumping.is_some() {
+        } else if q_sprint_jump.get(e).is_ok() || q_jumping.get(e).is_ok() {
             clips.jump.or(clips.fall).or(Some(clips.idle))
-        } else if falling.is_some() {
+        } else if q_falling.get(e).is_ok() {
             if vel.y > 0.0 {
                 clips.jump.or(clips.fall)
             } else {
                 clips.fall
             }
             .or(Some(clips.idle))
-        } else if running.is_some() {
+        } else if q_running.get(e).is_ok() {
             clips.run.or(clips.walk).or(Some(clips.idle))
-        } else if walking.is_some() {
+        } else if q_walking.get(e).is_ok() {
             clips.walk.or(Some(clips.idle))
+        } else if q_idle.get(e).is_ok() {
+            Some(clips.idle)
         } else {
             Some(clips.idle)
         };
@@ -781,61 +962,50 @@ fn drive_animation(
     }
 }
 
-// ───────── Debug ─────────
+// ───────── Debug (refactored to small queries) ─────────
 fn debug_log_player_state(
-    q: Query<
-        (
-            Option<&Idle>,
-            Option<&Walking>,
-            Option<&Running>,
-            Option<&Jumping>,
-            Option<&SprintJumping>,
-            Option<&Falling>,
-            Option<&IdleAttack>,
-            Option<&WalkingAttack>,
-            Option<&RunningAttack>,
-            Option<&JumpingAttack>,
-            Option<&FallingAttack>,
-        ),
-        With<Player>,
-    >,
+    q_players: Query<Entity, With<Player>>,
+    q_idle: Query<(), With<Idle>>,
+    q_walking: Query<(), With<Walking>>,
+    q_running: Query<(), With<Running>>,
+    q_jumping: Query<(), With<Jumping>>,
+    q_sprint_jump: Query<(), With<SprintJumping>>,
+    q_falling: Query<(), With<Falling>>,
+    q_idle_a: Query<(), With<IdleAttack>>,
+    q_walking_a: Query<(), With<WalkingAttack>>,
+    q_running_a: Query<(), With<RunningAttack>>,
+    q_jumping_a: Query<(), With<JumpingAttack>>,
+    q_falling_a: Query<(), With<FallingAttack>>,
+    q_stunned: Query<(), With<Stunned>>,
+    q_dead: Query<(), With<Dead>>,
     mut last: Local<Option<&'static str>>,
 ) {
-    for (
-        idle,
-        walking,
-        running,
-        jumping,
-        sprint_jump,
-        falling,
-        idle_a,
-        walking_a,
-        running_a,
-        jumping_a,
-        falling_a,
-    ) in &q
-    {
-        let now: &'static str = if idle_a.is_some() {
+    for e in &q_players {
+        let now: &'static str = if q_dead.get(e).is_ok() {
+            "Dead"
+        } else if q_stunned.get(e).is_ok() {
+            "Stunned"
+        } else if q_idle_a.get(e).is_ok() {
             "IdleAttack"
-        } else if walking_a.is_some() {
+        } else if q_walking_a.get(e).is_ok() {
             "WalkingAttack"
-        } else if running_a.is_some() {
+        } else if q_running_a.get(e).is_ok() {
             "RunningAttack"
-        } else if jumping_a.is_some() {
+        } else if q_jumping_a.get(e).is_ok() {
             "JumpingAttack"
-        } else if falling_a.is_some() {
+        } else if q_falling_a.get(e).is_ok() {
             "FallingAttack"
-        } else if sprint_jump.is_some() {
+        } else if q_sprint_jump.get(e).is_ok() {
             "SprintJumping"
-        } else if jumping.is_some() {
+        } else if q_jumping.get(e).is_ok() {
             "Jumping"
-        } else if falling.is_some() {
+        } else if q_falling.get(e).is_ok() {
             "Falling"
-        } else if running.is_some() {
+        } else if q_running.get(e).is_ok() {
             "Running"
-        } else if walking.is_some() {
+        } else if q_walking.get(e).is_ok() {
             "Walking"
-        } else if idle.is_some() {
+        } else if q_idle.get(e).is_ok() {
             "Idle"
         } else {
             "Idle"
@@ -859,16 +1029,22 @@ pub fn bridge_attack_states_to_melee_tag(
             Option<&JumpingAttack>,
             Option<&FallingAttack>,
             Option<&MeleeAttackActive>,
+            Option<&Stunned>,
+            Option<&Dead>,
         ),
         With<Player>,
     >,
 ) {
-    for (e, idle_a, walk_a, run_a, jump_a, fall_a, melee_tag) in &q {
-        let attacking = idle_a.is_some()
+    for (e, idle_a, walk_a, run_a, jump_a, fall_a, melee_tag, stunned, dead) in &q {
+        let base_attacking = idle_a.is_some()
             || walk_a.is_some()
             || run_a.is_some()
             || jump_a.is_some()
             || fall_a.is_some();
+
+        let can_melee = stunned.is_none() && dead.is_none();
+        let attacking = base_attacking && can_melee;
+
         match (attacking, melee_tag.is_some()) {
             (true, false) => {
                 commands.entity(e).insert(MeleeAttackActive);
@@ -880,12 +1056,71 @@ pub fn bridge_attack_states_to_melee_tag(
         }
     }
 }
+
 fn log_melee_hits(mut ev: EventReader<MeleeRaycastHit>) {
     for hit in ev.read() {
         info!(
             "Slash by {:?} hit {:?} at d={:.1} normal=({:.2},{:.2}) dmg={}",
             hit.attacker, hit.target, hit.distance, hit.normal.x, hit.normal.y, hit.damage
         );
+    }
+}
+
+// Record last hit direction for knockback
+fn record_last_hit_dir(
+    mut events: EventReader<MeleeRaycastHit>,
+    mut commands: Commands,
+    players: Query<(), With<Player>>,
+    xforms: Query<&GlobalTransform>,
+) {
+    for hit in events.read() {
+        if players.get(hit.target).is_ok() {
+            // Direction from attacker → target (i.e., away from attacker)
+            let dir = if let (Ok(att_tf), Ok(tgt_tf)) =
+                (xforms.get(hit.attacker), xforms.get(hit.target))
+            {
+                let d = tgt_tf.translation() - att_tf.translation();
+                Vec2::new(d.x, d.y).normalize_or_zero()
+            } else {
+                // Fallback: use normal if we couldn't get transforms
+                Vec2::new(hit.normal.x, hit.normal.y).normalize_or_zero()
+            };
+
+            commands.entity(hit.target).insert(LastHitDir(dir));
+        }
+    }
+}
+
+fn apply_melee_damage_to_player(
+    mut events: EventReader<MeleeRaycastHit>,
+    mut stats: ResMut<PlayerStats>,
+    players: Query<Entity, With<Player>>,
+    dead_q: Query<(), With<Dead>>,
+    classes: Query<&PlayerClass>,
+) {
+    // If there's no player entity yet, bail.
+    if players.is_empty() {
+        return;
+    }
+
+    for hit in events.read() {
+        // Only care about hits where the player is the target
+        if players.get(hit.target).is_ok() {
+            // Don't process further damage after death
+            if dead_q.get(hit.target).is_ok() {
+                continue;
+            }
+
+            // Pull defense from the player's class (0.0..=0.95)
+            let defense = classes
+                .get(hit.target)
+                .map(|c| c.0.base_stats.defense)
+                .unwrap_or(0.0)
+                .clamp(0.0, 0.95);
+
+            let dmg = (hit.damage as f32) * (1.0 - defense);
+            stats.health = (stats.health - dmg.max(0.0)).max(0.0);
+        }
     }
 }
 
@@ -898,6 +1133,10 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
+                    record_last_hit_dir,
+                    apply_melee_damage_to_player,
+                    react_to_health_changes,
+                    tick_stun_and_death_timers,
                     drive_motion_set_velocity,
                     face_by_input,
                     debug_log_player_state,
@@ -909,6 +1148,13 @@ impl Plugin for PlayerPlugin {
                     log_melee_hits,
                 ),
             )
-            .add_systems(PostUpdate, (on_added_jumping_set_impulse, drive_animation));
+            .add_systems(
+                PostUpdate,
+                (
+                    on_added_jumping_set_impulse,
+                    on_added_stunned_apply_knockback,
+                    drive_animation,
+                ),
+            );
     }
 }

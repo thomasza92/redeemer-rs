@@ -3,6 +3,8 @@ mod camera;
 mod character;
 mod class;
 mod enemy;
+mod enemy_class;
+mod enemy_spawner;
 mod filmic_post;
 mod gameflow;
 mod halation_post;
@@ -18,7 +20,8 @@ use crate::camera::{
 };
 use crate::character::{Action, PlayerPlugin, spawn_main_character};
 use crate::class::ClassPlugin;
-use crate::enemy::{EnemyPlugin, spawn_enemy};
+use crate::enemy::EnemyPlugin;
+use crate::enemy_class::EnemyClassPlugin;
 use crate::filmic_post::FilmicControls;
 use crate::filmic_post::FilmicPostProcessPlugin;
 use crate::filmic_post::FilmicSettings;
@@ -32,6 +35,7 @@ use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_window::PresentMode;
 use bevy_window::WindowMode;
+use enemy_spawner::EnemySpawnerPlugin;
 use vleue_kinetoscope::AnimatedImagePlugin;
 
 #[derive(Resource)]
@@ -47,10 +51,6 @@ fn mark_world_loaded(mut commands: Commands) {
 
 fn clear_world_loaded(mut commands: Commands) {
     commands.remove_resource::<WorldLoaded>();
-}
-
-fn spawn_enemies(mut commands: Commands) {
-    spawn_enemy(&mut commands, Vec2::new(200.0, 0.0), 160.0, 260.0);
 }
 
 fn main() {
@@ -87,6 +87,7 @@ fn main() {
         .add_plugins(PlayerPlugin)
         .add_plugins(EnemyPlugin)
         .add_plugins(ClassPlugin::new("assets/class_unknown.json").spawn_debug_holder(false))
+        .add_plugins(EnemyClassPlugin::new("assets/default_enemy.json").spawn_debug_holder(false))
         .add_plugins(HudPlugin)
         .add_plugins(AnimatedImagePlugin)
         .add_plugins(GameFlowPlugin)
@@ -94,6 +95,7 @@ fn main() {
         .add_plugins(TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default())
         .add_plugins(HalationPostProcessPlugin)
         .add_plugins(FilmicPostProcessPlugin)
+        .add_plugins(EnemySpawnerPlugin)
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
         .register_type::<FilmicSettings>()
         .register_type::<FilmicControls>()
@@ -103,13 +105,7 @@ fn main() {
             OnEnter(GameState::InGame),
             (
                 despawn_menu_camera,
-                (
-                    spawn_map,
-                    spawn_main_character,
-                    spawn_follow_camera,
-                    spawn_enemies,
-                )
-                    .run_if(world_not_loaded),
+                (spawn_map, spawn_main_character, spawn_follow_camera).run_if(world_not_loaded),
                 mark_world_loaded.run_if(world_not_loaded),
             )
                 .chain(),
