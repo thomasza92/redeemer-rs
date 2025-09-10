@@ -2,7 +2,6 @@ mod animations;
 mod camera;
 mod character;
 mod class;
-mod dither_post;
 mod enemy;
 mod filmic_post;
 mod gameflow;
@@ -19,7 +18,6 @@ use crate::camera::{
 };
 use crate::character::{Action, PlayerPlugin, spawn_main_character};
 use crate::class::ClassPlugin;
-use crate::dither_post::DitherPostProcessPlugin;
 use crate::enemy::{EnemyPlugin, spawn_enemy};
 use crate::filmic_post::FilmicControls;
 use crate::filmic_post::FilmicPostProcessPlugin;
@@ -94,7 +92,6 @@ fn main() {
         .add_plugins(GameFlowPlugin)
         .add_plugins(TiledPlugin::default())
         .add_plugins(TiledPhysicsPlugin::<TiledPhysicsAvianBackend>::default())
-        .add_plugins(DitherPostProcessPlugin)
         .add_plugins(HalationPostProcessPlugin)
         .add_plugins(FilmicPostProcessPlugin)
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
